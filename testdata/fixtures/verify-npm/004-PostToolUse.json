@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","session_id":"sess_verify_npm","cwd":"/scrubbed/34343434","transcript_path":"/scrubbed/transcript.jsonl","tool_name":"Bash","tool_use_id":"toolu_01","tool_response":{"stdout":"Tests:       20 passed, 20 total","stderr":"","interrupted":false}}

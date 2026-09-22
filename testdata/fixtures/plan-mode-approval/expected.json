@@ -1,0 +1,12 @@
+{
+  "events": [
+    { "type": "session_start", "payload": { "agent": "claude-code" } },
+    { "type": "prompt_submitted", "payload": {} },
+    { "type": "needs_input", "payload": { "kind": "plan" } },
+    { "type": "input_resolved", "payload": {} },
+    { "type": "stop", "payload": {} }
+  ],
+  "final_state": "done",
+  "recap_ok": false,
+  "synthetic": true
+}

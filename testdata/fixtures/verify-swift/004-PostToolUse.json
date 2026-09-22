@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","session_id":"sess_verify_swift","cwd":"/scrubbed/37373737","transcript_path":"/scrubbed/transcript.jsonl","tool_name":"Bash","tool_use_id":"toolu_01","tool_response":{"stdout":"Executed 10 tests, with 0 failures","stderr":"","interrupted":false}}

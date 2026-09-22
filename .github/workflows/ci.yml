@@ -1,0 +1,153 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        # Linux-only by policy: macOS runners are billed at a 10x multiplier;
+        # maintainers run the full suite on macOS locally before merging.
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    # Backstop for the whole job: normal runs finish in 60-90s. Without
+    # it, a single hung test (the credential-store backends shell out to a
+    # real OS binary) can run for the platform's default several-hour job
+    # cap before anyone notices.
+    timeout-minutes: 10
+    steps:
+      # Pinned to the same SHAs as release-check and release.yml
+      # (SEC-10 consistency).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+
+      - name: go mod verify
+        run: go mod verify
+
+      - name: go mod tidy is clean
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not gofmt-formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.13.2
+
+      # -timeout bounds each package's test binary well under the job's
+      # own 10-minute cap (Go's default is also 10 minutes, which is too
+      # close to help) and, if anything ever hangs, dumps every
+      # goroutine's stack into this step's log instead of leaving the run
+      # silent.
+      - name: Test
+        run: go test -timeout=2m ./...
+
+      # The "record" command (fixture recording) is built only with
+      # -tags dev, so it is excluded entirely from the steps above — that's
+      # what proves the release binary doesn't have it (see
+      # TestReleaseBuildHasNoRecordCommand). These extra steps make sure
+      # that dev-only code still gets compiled, vetted, linted, and tested
+      # somewhere, instead of silently bit-rotting between "make build-dev"
+      # runs.
+      - name: Build (dev tag)
+        run: go build -tags dev ./...
+
+      - name: Vet (dev tag)
+        run: go vet -tags dev ./...
+
+      - name: Lint (dev tag)
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.13.2
+          args: --build-tags=dev
+
+      - name: Test (dev tag)
+        run: go test -timeout=2m -tags dev ./...
+
+      # Replays the synthetic fixture corpus through
+      # the just-built release binary and compares it to each scenario's
+      # expected.json. "make fixtures" also runs "make build" itself, but
+      # running it explicitly first keeps this step's own failure message
+      # about the fixtures, not a build error.
+      - name: Build binary for fixtures
+        run: go build -o bin/agentpulse ./cmd/agentpulse
+
+      - name: Fixtures
+        run: go run ./tools/fixturecheck -bin bin/agentpulse
+
+  # Runs on every change, not just a v* tag: a broken .goreleaser.yaml
+  # should fail a pull request, not the next real release.
+  # "--snapshot --skip=publish" never talks to GitHub or a Homebrew tap.
+  release-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Pinned to the same SHAs as release.yml (SEC-10 consistency).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+
+      - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: build --snapshot --clean
+
+      # NFR-05: each platform binary must stay under 15 MB. Printed here,
+      # in the job summary, so a size regression shows up on every PR
+      # instead of only being noticed at tag time.
+      - name: Binary sizes (NFR-05)
+        run: |
+          {
+            echo "### Binary sizes (NFR-05: must be under 15 MB)"
+            echo
+            for f in dist/agentpulse_*/agentpulse; do
+              [ -f "$f" ] || continue
+              size=$(stat -c%s "$f")
+              echo "- $(basename "$(dirname "$f")"): ${size} bytes"
+              if [ "$size" -ge 15728640 ]; then
+                echo "::error::$(basename "$(dirname "$f")") is ${size} bytes, over the 15 MB NFR-05 limit"
+                exit 1
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The PyPI half of packaging: a broken config must fail a pull
+      # request, not the next real release. No upload, no secret
+      # referenced.
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Build and check wheels
+        run: |
+          python3 -m venv /tmp/pypi-tools
+          /tmp/pypi-tools/bin/pip install -q build==1.6.1 hatchling==1.32.0 twine==7.0.0
+          /tmp/pypi-tools/bin/python packaging/pypi/build_wheels.py --dist dist --out dist/wheels --version 0.0.0
+          /tmp/pypi-tools/bin/twine check dist/wheels/*.whl

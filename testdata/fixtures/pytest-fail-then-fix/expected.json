@@ -1,0 +1,15 @@
+{
+  "events": [
+    { "type": "session_start", "payload": { "agent": "claude-code" } },
+    { "type": "prompt_submitted", "payload": {} },
+    { "type": "verification_started", "payload": { "kind": "test", "runner": "pytest" } },
+    { "type": "verification_finished", "payload": { "kind": "test", "runner": "pytest", "outcome": "fail", "passed": 9, "failed": 1, "total": 10 } },
+    { "type": "activity", "payload": { "category": "edit" } },
+    { "type": "verification_started", "payload": { "kind": "test", "runner": "pytest" } },
+    { "type": "verification_finished", "payload": { "kind": "test", "runner": "pytest", "outcome": "pass", "passed": 10, "failed": 0, "total": 10 } },
+    { "type": "stop", "payload": {} }
+  ],
+  "final_state": "done",
+  "recap_ok": false,
+  "synthetic": true
+}

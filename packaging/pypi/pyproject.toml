@@ -1,0 +1,30 @@
+# PyPI packaging for the agentpulse bridge (BR-20, BR-01). PYPI_NAME
+# is defined exactly once, here, as [project] name. See README.md.
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentpulse"
+dynamic = ["version"]
+description = "Connects Claude Code to the AgentPulse iPhone app"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+dependencies = [] # BR-01: no runtime dependency may enter the wheel.
+
+[project.urls]
+Homepage = "https://github.com/agentpulsesoftware/agentpulse-bridge"
+
+[tool.hatch.version] # build_wheels.py writes VERSION; never committed.
+source = "regex"
+path = "VERSION"
+pattern = "(?P<version>.+)"
+
+[tool.hatch.build.hooks.custom] # default path: hatch_build.py
+
+[tool.hatch.build.targets.wheel]
+bypass-selection = true # no Python package; only shared-scripts below.
+
+[tool.hatch.build.targets.wheel.shared-scripts]
+"bin/agentpulse" = "agentpulse"

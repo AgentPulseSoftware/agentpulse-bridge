@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","session_id":"sess_concurrent_b","cwd":"/scrubbed/1b1b1b1b","transcript_path":"/scrubbed/transcript.jsonl","tool_name":"Read","tool_use_id":"toolu_b1","tool_input":{"file_path":"/scrubbed/fb1.go"}}

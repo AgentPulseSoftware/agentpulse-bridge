@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","session_id":"sess_read_heavy_exploration","cwd":"/scrubbed/f6f6f6f6","transcript_path":"/scrubbed/transcript.jsonl","tool_name":"LS","tool_use_id":"toolu_04","tool_input":{"path":"/scrubbed/f4"}}

@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","session_id":"sess_verify_go_test","cwd":"/scrubbed/35353535","transcript_path":"/scrubbed/transcript.jsonl","tool_name":"Bash","tool_use_id":"toolu_01","tool_response":{"stdout":"--- PASS: TestA (0.00s)\n--- PASS: TestB (0.00s)\nok  \tpkg\t0.01s","stderr":"","interrupted":false}}

@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","session_id":"sess_pytest_fail_then_fix","cwd":"/scrubbed/b2b2b2b2","transcript_path":"/scrubbed/transcript.jsonl","tool_name":"Bash","tool_use_id":"toolu_01","tool_input":{"command":"pytest -q"},"tool_response":{"stdout":"1 failed, 9 passed in 1.02s","stderr":"","interrupted":false}}

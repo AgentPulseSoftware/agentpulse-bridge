@@ -1,0 +1,29 @@
+# Go build output
+/bin/
+/agentpulse
+
+# GoReleaser and packaging output
+/dist/
+*.whl
+/packaging/pypi/VERSION
+/packaging/pypi/build/
+
+# Python tooling (packaging/pypi)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# Local logs and secrets — none of these belong in this repository
+*.log
+.env
+.env.*
+*.p8
+*.p12
+
+# Local scratch state and worktrees
+STATE.md
+/.worktrees/

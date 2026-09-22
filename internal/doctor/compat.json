@@ -1,0 +1,13 @@
+{
+  "baseline_version": "2.1.261",
+  "events": [
+    {"name": "SessionStart", "min_version": "2.1.261"},
+    {"name": "UserPromptSubmit", "min_version": "2.1.261"},
+    {"name": "PreToolUse", "min_version": "2.1.261"},
+    {"name": "PostToolUse", "min_version": "2.1.261"},
+    {"name": "PermissionRequest", "min_version": "2.1.261"},
+    {"name": "Notification", "min_version": "2.1.261"},
+    {"name": "Stop", "min_version": "2.1.261"},
+    {"name": "SessionEnd", "min_version": "2.1.261"}
+  ]
+}

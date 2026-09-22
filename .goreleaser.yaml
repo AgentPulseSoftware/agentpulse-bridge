@@ -1,0 +1,95 @@
+# GoReleaser configuration for the AgentPulse bridge (BR-20, SEC-10, NFR-05).
+#
+# No owner or repository name is hard-coded here. The GitHub release
+# (owner/repo, upload target, changelog) is inferred by GoReleaser itself
+# from the git remote / GITHUB_REPOSITORY when it runs in Actions. The one
+# thing GoReleaser cannot infer — the separate Homebrew tap repository — is
+# read from TAP_OWNER and TAP_NAME, which the release workflow derives, in
+# one place, from the single TAP_REPO variable (see
+# .github/workflows/release.yml).
+#
+# See install.sh (RELEASE_BASE_URL) for what moves if the module path or
+# organization ever changes.
+version: 2
+
+project_name: agentpulse
+
+before:
+  hooks:
+    - go mod verify
+
+builds:
+  - id: agentpulse
+    main: ./cmd/agentpulse
+    binary: agentpulse
+    dir: .
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    # main.version is the variable cmd/agentpulse/main.go declares
+    # (defaults to "dev" for non-release builds).
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    # The "dev" build tag is never set here: a release binary must not
+    # carry the "record" command, which writes raw, unscrubbed session
+    # data (see TestReleaseBuildHasNoRecordCommand). No -tags line means
+    # no build tags at all.
+    hooks:
+      # No-ops unless SIGN=1 (see the script header). Runs for every
+      # platform; it only acts on darwin.
+      post:
+        - cmd: ./scripts/codesign-notarize.sh "{{ .Path }}" "{{ .Os }}"
+          output: true
+
+archives:
+  - id: agentpulse
+    ids: [agentpulse]
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+      - COMPATIBILITY.md
+      - LICENSE*
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+# Snapshot builds (PR-time "does the config still work" runs, and local
+# testing) never touch the tap or a real GitHub release.
+snapshot:
+  version_template: "{{ .Tag }}-snapshot-{{ .ShortCommit }}"
+
+brews:
+  - name: agentpulse
+    ids: [agentpulse]
+    repository:
+      owner: "{{ .Env.TAP_OWNER }}"
+      name: "{{ .Env.TAP_NAME }}"
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    commit_author:
+      name: agentpulse-release-bot
+      email: release@agentpulse.invalid
+    homepage: "https://github.com/{{ .Env.GITHUB_REPOSITORY }}"
+    description: "Connects Claude Code to the AgentPulse iPhone app"
+    license: "Apache-2.0"
+    test: |
+      system "#{bin}/agentpulse", "version"
+    caveats: |
+      Run `agentpulse pair` to connect this machine to the AgentPulse app.
+
+release:
+  # Owner/repo come from GoReleaser's own context (git remote in Actions),
+  # never written here. A push to main never runs "goreleaser release";
+  # only a v* tag does (see the workflow), and this whole pipeline
+  # publishes nothing when invoked with --skip=publish or --snapshot.
+  draft: false
+  prerelease: auto

@@ -1,0 +1,13 @@
+{
+  "events": [
+    { "type": "session_start", "payload": { "agent": "claude-code" } },
+    { "type": "session_start", "payload": { "agent": "claude-code" } },
+    { "type": "activity", "payload": { "category": "read" } },
+    { "type": "activity", "payload": { "category": "read" } },
+    { "type": "stop", "payload": {} },
+    { "type": "stop", "payload": {} }
+  ],
+  "final_state": "done",
+  "recap_ok": false,
+  "synthetic": true
+}

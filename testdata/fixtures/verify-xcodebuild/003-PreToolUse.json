@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","session_id":"sess_verify_xcodebuild","cwd":"/scrubbed/38383838","transcript_path":"/scrubbed/transcript.jsonl","tool_name":"Bash","tool_use_id":"toolu_01","tool_input":{"command":"xcodebuild -scheme AgentPulse -destination 'x' test"}}

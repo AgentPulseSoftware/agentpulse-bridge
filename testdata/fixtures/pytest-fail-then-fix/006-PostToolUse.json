@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","session_id":"sess_pytest_fail_then_fix","cwd":"/scrubbed/b2b2b2b2","transcript_path":"/scrubbed/transcript.jsonl","tool_name":"Edit","tool_use_id":"toolu_02","tool_input":{"file_path":"/scrubbed/f1.py"},"tool_response":"scrubbed (40 chars)"}
