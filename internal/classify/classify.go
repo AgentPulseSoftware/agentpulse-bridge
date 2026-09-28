@@ -27,33 +27,60 @@ const unpairedBridgeID = "brg_unpaired"
 // this hook call — either because SPEC 7.2 defines none (most PostToolUse
 // calls, an idle_prompt Notification, ...) or an activity event was
 // suppressed.
+//
+// A hook that fired inside a subagent (input.InSubagent) is classified
+// against that subagent's own chain state and its event carries the
+// `subagent` envelope (ADR-005 section 1); session_id is always the
+// parent's, because Claude Code sends the parent's (COMPATIBILITY.md,
+// "Subagent hooks", finding a).
 func Classify(input HookInput, state *SessionState) (event *Event, ok bool) {
 	now := input.Now
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
 
+	chainID := ""
+	if input.InSubagent() {
+		if excludedInSubagent(input.HookEventName) {
+			return nil, false
+		}
+		chainID = SubagentID(input.AgentID)
+	}
+	mainChain := &state.ChainState
+
 	switch input.HookEventName {
 	case HookSessionStart:
-		return classifySessionStart(input, state, now), true
+		return classifySessionStart(input, state, mainChain, now), true
 	case HookUserPromptSubmit:
-		return classifyUserPromptSubmit(input, state, now), true
+		return classifyUserPromptSubmit(input, state, mainChain, now), true
 	case HookPreToolUse:
-		return classifyPreToolUse(input, state, now)
+		return classifyPreToolUse(input, state, state.chain(chainID, now), now)
 	case HookPostToolUse:
-		return classifyPostToolUse(input, state, now)
+		return classifyPostToolUse(input, state, state.chain(chainID, now), now)
 	case HookPermissionRequest:
-		return classifyPermissionRequest(input, state, now), true
+		return classifyPermissionRequest(input, state, state.chain(chainID, now), now), true
 	case HookNotification:
-		return classifyNotification(input, state, now)
+		return classifyNotification(input, state, state.chain(chainID, now), now)
 	case HookStop:
-		return classifyStop(input, state, now), true
+		return classifyStop(input, state, mainChain, now), true
 	case HookSessionEnd:
-		return classifySessionEnd(input, state, now), true
-	case HookSubagentStop, HookPreCompact:
-		// Not registered in V1 (SPEC 7.1, BR-08); if one arrives anyway
-		// (a future Claude Code version, or an operator's own hook
-		// config), the conservative choice is no event at all.
+		return classifySessionEnd(input, state, mainChain, now), true
+	case HookSubagentStart:
+		if chainID == "" {
+			return nil, false // SubagentsOn is false, or no agent_id to name the chain by
+		}
+		return buildEvent(input, state, state.chain(chainID, now), now, TypeSubagentStart, EmptyPayload{}), true
+	case HookSubagentStop:
+		if chainID == "" {
+			return nil, false
+		}
+		// The chain's own state is deleted, so its LastEmittedAt is moot.
+		ev := buildEvent(input, state, &ChainState{}, now, TypeSubagentStop, EmptyPayload{})
+		delete(state.Subagents, chainID)
+		return ev, true
+	case HookPreCompact:
+		// Not registered (BR-08); if one arrives anyway, the
+		// conservative choice is no event at all.
 		return nil, false
 	default:
 		return nil, false
@@ -64,21 +91,36 @@ func Classify(input HookInput, state *SessionState) (event *Event, ok bool) {
 
 // buildEvent fills the SPEC 10.1 envelope common to every event type and
 // records that an event was actually emitted: it is the single place
-// state.LastEmittedAt is updated, so every emit path — including ones that
-// never touch category-based suppression — keeps the 5-minute heartbeat
-// window correct.
-func buildEvent(input HookInput, state *SessionState, now time.Time, eventType string, payload any) *Event {
-	state.LastEmittedAt = now
+// c.LastEmittedAt is updated, so every emit path — including ones that
+// never touch category-based suppression — keeps the chain's 5-minute
+// heartbeat window correct.
+//
+// A main-chain event derives its project from cwd (BR-13) and remembers
+// it in state.Project; a subagent event reports that remembered project
+// instead, and only derives its own when there is none yet.
+func buildEvent(input HookInput, state *SessionState, c *ChainState, now time.Time, eventType string, payload any) *Event {
+	c.LastEmittedAt = now
 	bridgeID := input.BridgeID
 	if bridgeID == "" {
 		bridgeID = unpairedBridgeID
+	}
+	sub := subagentFor(input)
+	var project Project
+	if sub != nil && state.Project != nil {
+		project = *state.Project
+	} else {
+		project = deriveProject(input.Cwd)
+		if sub == nil {
+			p := project
+			state.Project = &p
+		}
 	}
 	return &Event{
 		Schema:    1,
 		EventID:   newULID(now),
 		BridgeID:  bridgeID,
 		SessionID: input.SessionID,
-		Project:   deriveProject(input.Cwd),
+		Project:   project,
 		TS:        now.UTC().Format("2006-01-02T15:04:05.000Z"),
 		Type:      eventType,
 		Counters: Counters{
@@ -87,37 +129,38 @@ func buildEvent(input HookInput, state *SessionState, now time.Time, eventType s
 			VerificationRuns: state.VerificationRuns,
 			Commits:          state.Commits,
 		},
-		Payload: payload,
+		Payload:  payload,
+		Subagent: sub,
 	}
 }
 
 // --- SessionStart, UserPromptSubmit, Stop, SessionEnd: always emitted ---
 
-func classifySessionStart(input HookInput, state *SessionState, now time.Time) *Event {
-	return buildEvent(input, state, now, TypeSessionStart, SessionStartPayload{
+func classifySessionStart(input HookInput, state *SessionState, c *ChainState, now time.Time) *Event {
+	return buildEvent(input, state, c, now, TypeSessionStart, SessionStartPayload{
 		Agent:         "claude-code",
 		BridgeVersion: input.BridgeVersion,
 		OS:            osValue(),
 	})
 }
 
-func classifyUserPromptSubmit(input HookInput, state *SessionState, now time.Time) *Event {
+func classifyUserPromptSubmit(input HookInput, state *SessionState, c *ChainState, now time.Time) *Event {
 	payload := PromptSubmittedPayload{}
 	if input.TaskLabelOn && state.AwaitingTaskLabel {
 		payload.TaskLabel = firstLineTaskLabel(input.Prompt)
 	}
 	state.AwaitingTaskLabel = false
-	return buildEvent(input, state, now, TypePromptSubmitted, payload)
+	return buildEvent(input, state, c, now, TypePromptSubmitted, payload)
 }
 
-func classifyStop(input HookInput, state *SessionState, now time.Time) *Event {
+func classifyStop(input HookInput, state *SessionState, c *ChainState, now time.Time) *Event {
 	// BR-17: the next prompt after a stop gets a task_label again.
 	state.AwaitingTaskLabel = true
-	return buildEvent(input, state, now, TypeStop, EmptyPayload{})
+	return buildEvent(input, state, c, now, TypeStop, EmptyPayload{})
 }
 
-func classifySessionEnd(input HookInput, state *SessionState, now time.Time) *Event {
-	return buildEvent(input, state, now, TypeSessionEnd, SessionEndPayload{
+func classifySessionEnd(input HookInput, state *SessionState, c *ChainState, now time.Time) *Event {
+	return buildEvent(input, state, c, now, TypeSessionEnd, SessionEndPayload{
 		Reason: sessionEndReason(input.Reason),
 	})
 }
@@ -163,37 +206,37 @@ func osValue() string {
 
 // --- PreToolUse ---
 
-func classifyPreToolUse(input HookInput, state *SessionState, now time.Time) (*Event, bool) {
+func classifyPreToolUse(input HookInput, state *SessionState, c *ChainState, now time.Time) (*Event, bool) {
 	// Reset every pending marker: SPEC 7.2's PreToolUse rows are mutually
 	// exclusive by tool name, so at most one of these gets set again below,
 	// and the matching PostToolUse is the only thing that should ever
 	// consult them.
-	state.PendingVerification = nil
-	state.PendingNeedsInput = nil
-	state.PRPending = false
-	state.CommitPending = false
+	c.PendingVerification = nil
+	c.PendingNeedsInput = nil
+	c.PRPending = false
+	c.CommitPending = false
 
 	switch input.ToolName {
 	case "AskUserQuestion":
-		state.PendingNeedsInput = &PendingNeedsInput{Kind: NeedsInputQuestion}
-		return needsInputEvent(input, state, now, NeedsInputQuestion, ""), true
+		c.PendingNeedsInput = &PendingNeedsInput{Kind: NeedsInputQuestion}
+		return needsInputEvent(input, state, c, now, NeedsInputQuestion, ""), true
 	case "ExitPlanMode":
-		state.PendingNeedsInput = &PendingNeedsInput{Kind: NeedsInputPlan}
-		return needsInputEvent(input, state, now, NeedsInputPlan, ""), true
+		c.PendingNeedsInput = &PendingNeedsInput{Kind: NeedsInputPlan}
+		return needsInputEvent(input, state, c, now, NeedsInputPlan, ""), true
 	case "Read", "Glob", "Grep", "LS", "WebFetch", "WebSearch":
 		updateReadCounters(input, state)
-		return activityEvent(input, state, now, CategoryRead)
+		return activityEvent(input, state, c, now, CategoryRead)
 	case "Edit", "MultiEdit", "Write", "NotebookEdit":
 		updateEditCounters(input, state)
-		return activityEvent(input, state, now, CategoryEdit)
+		return activityEvent(input, state, c, now, CategoryEdit)
 	case "Bash":
-		return classifyPreToolUseBash(input, state, now)
+		return classifyPreToolUseBash(input, state, c, now)
 	default:
-		return activityEvent(input, state, now, CategoryOther)
+		return activityEvent(input, state, c, now, CategoryOther)
 	}
 }
 
-func classifyPreToolUseBash(input HookInput, state *SessionState, now time.Time) (*Event, bool) {
+func classifyPreToolUseBash(input HookInput, state *SessionState, c *ChainState, now time.Time) (*Event, bool) {
 	f := decodeToolInput(input.ToolInput)
 	seg := cmdnorm.Normalize(f.Command)
 
@@ -210,24 +253,24 @@ func classifyPreToolUseBash(input HookInput, state *SessionState, now time.Time)
 	// because DetectRunner could otherwise misfire on these exact
 	// examples.
 	if ghPRCreatePattern.MatchString(seg) {
-		state.PRPending = true
-		return activityEvent(input, state, now, CategoryOther)
+		c.PRPending = true
+		return activityEvent(input, state, c, now, CategoryOther)
 	}
 	if gitCommitPattern.MatchString(seg) {
-		state.CommitPending = true
-		return activityEvent(input, state, now, CategoryOther)
+		c.CommitPending = true
+		return activityEvent(input, state, c, now, CategoryOther)
 	}
 
 	if runner, kind, goVerbose, ok := DetectRunner(f.Command); ok {
-		state.PendingVerification = &PendingVerification{Runner: runner, Kind: kind, GoVerbose: goVerbose}
+		c.PendingVerification = &PendingVerification{Runner: runner, Kind: kind, GoVerbose: goVerbose}
 		// Never suppressed (SPEC 7.2).
-		return buildEvent(input, state, now, TypeVerificationStarted, VerificationStartedPayload{
+		return buildEvent(input, state, c, now, TypeVerificationStarted, VerificationStartedPayload{
 			Kind:   kind,
 			Runner: string(runner),
 		}), true
 	}
 
-	return activityEvent(input, state, now, CategoryOther)
+	return activityEvent(input, state, c, now, CategoryOther)
 }
 
 func updateReadCounters(input HookInput, state *SessionState) {
@@ -256,13 +299,13 @@ func updateEditCounters(input HookInput, state *SessionState) {
 
 // --- PostToolUse ---
 
-func classifyPostToolUse(input HookInput, state *SessionState, now time.Time) (*Event, bool) {
-	if pv := state.PendingVerification; pv != nil {
-		state.PendingVerification = nil
+func classifyPostToolUse(input HookInput, state *SessionState, c *ChainState, now time.Time) (*Event, bool) {
+	if pv := c.PendingVerification; pv != nil {
+		c.PendingVerification = nil
 		state.VerificationRuns++
 		output := extractResponseText(input.ToolResponse)
 		result := ParseResult(pv.Runner, pv.GoVerbose, output)
-		return buildEvent(input, state, now, TypeVerificationFinished, VerificationFinishedPayload{
+		return buildEvent(input, state, c, now, TypeVerificationFinished, VerificationFinishedPayload{
 			Kind:    pv.Kind,
 			Runner:  string(pv.Runner),
 			Outcome: result.Outcome,
@@ -272,25 +315,25 @@ func classifyPostToolUse(input HookInput, state *SessionState, now time.Time) (*
 		}), true
 	}
 
-	if state.PRPending {
-		state.PRPending = false
+	if c.PRPending {
+		c.PRPending = false
 		output := extractResponseText(input.ToolResponse)
 		if number, ok := parsePRNumber(output); ok {
 			n := number
-			return buildEvent(input, state, now, TypePRCreated, PRCreatedPayload{Number: &n}), true
+			return buildEvent(input, state, c, now, TypePRCreated, PRCreatedPayload{Number: &n}), true
 		}
 		return nil, false
 	}
 
-	if state.CommitPending {
-		state.CommitPending = false
+	if c.CommitPending {
+		c.CommitPending = false
 		state.Commits++
-		return buildEvent(input, state, now, TypeCommit, EmptyPayload{}), true
+		return buildEvent(input, state, c, now, TypeCommit, EmptyPayload{}), true
 	}
 
-	if state.PendingNeedsInput != nil {
-		state.PendingNeedsInput = nil
-		return buildEvent(input, state, now, TypeInputResolved, EmptyPayload{}), true
+	if c.PendingNeedsInput != nil {
+		c.PendingNeedsInput = nil
+		return buildEvent(input, state, c, now, TypeInputResolved, EmptyPayload{}), true
 	}
 
 	return nil, false
@@ -302,21 +345,21 @@ func parsePRNumber(output string) (int, bool) {
 
 // --- PermissionRequest, Notification: needs_input(permission) ---
 
-func classifyPermissionRequest(input HookInput, state *SessionState, now time.Time) *Event {
-	state.LastPermissionRequestAt = now
-	return needsInputEvent(input, state, now, NeedsInputPermission, toolCategory(input.ToolName))
+func classifyPermissionRequest(input HookInput, state *SessionState, c *ChainState, now time.Time) *Event {
+	c.LastPermissionRequestAt = now
+	return needsInputEvent(input, state, c, now, NeedsInputPermission, toolCategory(input.ToolName))
 }
 
-func classifyNotification(input HookInput, state *SessionState, now time.Time) (*Event, bool) {
+func classifyNotification(input HookInput, state *SessionState, c *ChainState, now time.Time) (*Event, bool) {
 	switch {
 	case strings.HasPrefix(input.Message, claudehooks.NotificationPermissionPromptPrefix):
-		if !state.LastPermissionRequestAt.IsZero() && now.Sub(state.LastPermissionRequestAt) <= permissionDedupWindow {
+		if !c.LastPermissionRequestAt.IsZero() && now.Sub(c.LastPermissionRequestAt) <= permissionDedupWindow {
 			return nil, false // deduplicated against a recent PermissionRequest (SPEC 7.2)
 		}
 		// tool_category is omitted: a Notification carries no tool name to
 		// categorize (SPEC 7.2 only assigns tool_category from the
 		// PermissionRequest hook's own tool_name).
-		return needsInputEvent(input, state, now, NeedsInputPermission, ""), true
+		return needsInputEvent(input, state, c, now, NeedsInputPermission, ""), true
 	case strings.HasPrefix(input.Message, claudehooks.NotificationIdlePromptPrefix):
 		return nil, false
 	default:
@@ -337,9 +380,9 @@ func toolCategory(toolName string) string {
 	}
 }
 
-func needsInputEvent(input HookInput, state *SessionState, now time.Time, kind, toolCat string) *Event {
-	state.LastNeedsInputAt = now
-	return buildEvent(input, state, now, TypeNeedsInput, NeedsInputPayload{
+func needsInputEvent(input HookInput, state *SessionState, c *ChainState, now time.Time, kind, toolCat string) *Event {
+	c.LastNeedsInputAt = now
+	return buildEvent(input, state, c, now, TypeNeedsInput, NeedsInputPayload{
 		Kind:         kind,
 		ToolCategory: toolCat,
 	})
@@ -347,21 +390,21 @@ func needsInputEvent(input HookInput, state *SessionState, now time.Time, kind, 
 
 // --- activity suppression (SPEC 7.2) ---
 
-func activityEvent(input HookInput, state *SessionState, now time.Time, category string) (*Event, bool) {
-	if !shouldEmitActivity(state, category, now) {
+func activityEvent(input HookInput, state *SessionState, c *ChainState, now time.Time, category string) (*Event, bool) {
+	if !shouldEmitActivity(c, category, now) {
 		return nil, false
 	}
-	ev := buildEvent(input, state, now, TypeActivity, ActivityPayload{Category: category})
-	state.LastEmittedCategory = category
+	ev := buildEvent(input, state, c, now, TypeActivity, ActivityPayload{Category: category})
+	c.LastEmittedCategory = category
 	return ev, true
 }
 
-func shouldEmitActivity(state *SessionState, category string, now time.Time) bool {
-	if state.LastEmittedCategory != category {
+func shouldEmitActivity(c *ChainState, category string, now time.Time) bool {
+	if c.LastEmittedCategory != category {
 		return true
 	}
-	if state.LastEmittedAt.IsZero() {
+	if c.LastEmittedAt.IsZero() {
 		return true
 	}
-	return now.Sub(state.LastEmittedAt) >= suppressionWindow
+	return now.Sub(c.LastEmittedAt) >= suppressionWindow
 }

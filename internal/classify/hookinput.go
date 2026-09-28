@@ -32,11 +32,26 @@ type HookInput struct {
 	Message       string          `json:"message,omitempty"`
 	Reason        string          `json:"reason,omitempty"`
 
+	// AgentID and AgentType are present only on hooks that fire for, or
+	// inside, a Claude Code subagent (COMPATIBILITY.md, "Subagent hooks";
+	// ADR-005 section 1). AgentID is used only as the input to SubagentID's
+	// one-way hash and is never sent, logged, or persisted; AgentType is
+	// sent only after SubagentType has cleaned it.
+	AgentID   string `json:"agent_id,omitempty"`
+	AgentType string `json:"agent_type,omitempty"`
+
 	// --- caller-supplied context; never present in Claude Code's JSON ---
 	Now           time.Time `json:"-"`
 	BridgeID      string    `json:"-"`
 	BridgeVersion string    `json:"-"`
 	TaskLabelOn   bool      `json:"-"`
+	// SubagentsOn is whether subagent hooks are classified as their own
+	// chains (ADR-005, D72). "agentpulse hook" sets it true unless the
+	// flush fallback has switched marking off for a while after a relay
+	// rejected the subagent field (ADR-005 section 8). When false,
+	// AgentID and AgentType are ignored and classification is exactly
+	// what it was before subagents were recognized.
+	SubagentsOn bool `json:"-"`
 }
 
 // ParseHookInput decodes raw as one Claude Code hook JSON document.
@@ -57,6 +72,8 @@ func ParseHookInput(raw []byte) (HookInput, error) {
 		Prompt        string          `json:"prompt"`
 		Message       string          `json:"message"`
 		Reason        string          `json:"reason"`
+		AgentID       string          `json:"agent_id"`
+		AgentType     string          `json:"agent_type"`
 	}
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return HookInput{}, err
@@ -71,6 +88,8 @@ func ParseHookInput(raw []byte) (HookInput, error) {
 		Prompt:        doc.Prompt,
 		Message:       doc.Message,
 		Reason:        doc.Reason,
+		AgentID:       doc.AgentID,
+		AgentType:     doc.AgentType,
 	}, nil
 }
 
@@ -85,11 +104,15 @@ const (
 	HookStop              = "Stop"
 	HookSessionEnd        = "SessionEnd"
 
-	// Not registered in V1 (BR-08, SPEC 7.1: "SubagentStop hooks are not
-	// registered in V1"; PreCompact is likewise absent from BR-08's list).
-	// Named here only so Classify can recognize and safely ignore them if
-	// a future Claude Code version, or an operator's own hook config,
-	// ever sends one anyway.
-	HookSubagentStop = "SubagentStop"
-	HookPreCompact   = "PreCompact"
+	// SubagentStart and SubagentStop become subagent_start and
+	// subagent_stop when SubagentsOn is true, and nothing otherwise
+	// (ADR-005 section 1). They are not yet registered by "agentpulse
+	// pair"; that is card P5-21.
+	HookSubagentStart = "SubagentStart"
+	HookSubagentStop  = "SubagentStop"
+
+	// Not registered (BR-08). Named here only so Classify can recognize
+	// and safely ignore it if an operator's own hook config ever sends
+	// one anyway.
+	HookPreCompact = "PreCompact"
 )
