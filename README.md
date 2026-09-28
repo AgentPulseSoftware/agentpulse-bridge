@@ -88,7 +88,8 @@ Three mechanisms keep it that way, and all three are in this repository:
    serialised and sent; there is no map, no "extra" field, and no passthrough
    of the hook JSON. `internal/classify/br19_test.go` reflects over every
    event and payload type and fails if a field named `cwd`, `prompt`,
-   `tool_input`, `tool_response`, or `transcript_path` ever appears.
+   `tool_input`, `tool_response`, `transcript_path`, `agent_id`, or
+   `agent_transcript_path` ever appears.
 2. **The relay's own validation** — every event is validated against the
    published `event.v1` JSON Schema, which sets `additionalProperties: false`
    on every variant, so an unknown field is rejected rather than stored.
