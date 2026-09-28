@@ -215,13 +215,21 @@ func classifyPreToolUse(input HookInput, state *SessionState, c *ChainState, now
 	c.PendingNeedsInput = nil
 	c.PRPending = false
 	c.CommitPending = false
+	// An overflow chain is shared by every subagent past the cap, so a
+	// marker set there could be reset or consumed by a different
+	// subagent's hook. It never tracks one (see SessionState.Overflow).
+	track := !state.isOverflow(c)
 
 	switch input.ToolName {
 	case "AskUserQuestion":
-		c.PendingNeedsInput = &PendingNeedsInput{Kind: NeedsInputQuestion}
+		if track {
+			c.PendingNeedsInput = &PendingNeedsInput{Kind: NeedsInputQuestion}
+		}
 		return needsInputEvent(input, state, c, now, NeedsInputQuestion, ""), true
 	case "ExitPlanMode":
-		c.PendingNeedsInput = &PendingNeedsInput{Kind: NeedsInputPlan}
+		if track {
+			c.PendingNeedsInput = &PendingNeedsInput{Kind: NeedsInputPlan}
+		}
 		return needsInputEvent(input, state, c, now, NeedsInputPlan, ""), true
 	case "Read", "Glob", "Grep", "LS", "WebFetch", "WebSearch":
 		updateReadCounters(input, state)
@@ -230,6 +238,9 @@ func classifyPreToolUse(input HookInput, state *SessionState, c *ChainState, now
 		updateEditCounters(input, state)
 		return activityEvent(input, state, c, now, CategoryEdit)
 	case "Bash":
+		if !track {
+			return activityEvent(input, state, c, now, CategoryOther)
+		}
 		return classifyPreToolUseBash(input, state, c, now)
 	default:
 		return activityEvent(input, state, c, now, CategoryOther)
@@ -300,6 +311,9 @@ func updateEditCounters(input HookInput, state *SessionState) {
 // --- PostToolUse ---
 
 func classifyPostToolUse(input HookInput, state *SessionState, c *ChainState, now time.Time) (*Event, bool) {
+	if state.isOverflow(c) {
+		return nil, false // no markers are tracked there, and a stale one is not trusted
+	}
 	if pv := c.PendingVerification; pv != nil {
 		c.PendingVerification = nil
 		state.VerificationRuns++

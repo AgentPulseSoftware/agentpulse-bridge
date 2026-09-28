@@ -41,7 +41,11 @@ type SessionState struct {
 	// Overflow is the one ChainState every subagent beyond the cap
 	// shares (see chain). It is never the main chain's, so a crowd of
 	// subagents can neither consume the main chain's pending markers nor
-	// suppress its reads.
+	// suppress its reads. Because it is shared, it never tracks the
+	// one-shot markers either: one overflow subagent's PreToolUse would
+	// reset another's, or its PostToolUse would consume another's. A
+	// runner, a pull request or a commit there is plain activity, and
+	// its PostToolUse emits nothing.
 	Overflow *ChainState `json:"subagent_overflow,omitempty"`
 
 	// LastPermissionRequestAt is set whenever a PermissionRequest hook is
@@ -106,8 +110,8 @@ type ChainState struct {
 	// into verification_finished / input_resolved. Exactly one of
 	// {PendingVerification, PendingNeedsInput, PRPending, CommitPending}
 	// is set after any given PreToolUse (SPEC 7.2's rows are mutually
-	// exclusive by tool name), and all four are reset at the start of
-	// every PreToolUse.
+	// exclusive by tool name; none in the Overflow chain), and all four
+	// are reset at the start of every PreToolUse.
 	PendingVerification *PendingVerification `json:"pending_verification,omitempty"`
 	PendingNeedsInput   *PendingNeedsInput   `json:"pending_needs_input,omitempty"`
 }
@@ -153,6 +157,12 @@ func (s *SessionState) chain(id string, now time.Time) *ChainState {
 	c := &ChainState{}
 	s.Subagents[id] = c
 	return c
+}
+
+// isOverflow reports whether c is the chain shared by every subagent
+// past the cap.
+func (s *SessionState) isOverflow(c *ChainState) bool {
+	return s.Overflow != nil && c == s.Overflow
 }
 
 // PendingVerification records what a PreToolUse Bash verification call
