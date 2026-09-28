@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/agentpulsesoftware/agentpulse-bridge/internal/classify"
+	"github.com/agentpulsesoftware/agentpulse-bridge/internal/relay"
+	"github.com/agentpulsesoftware/agentpulse-bridge/internal/watch"
 	"github.com/agentpulsesoftware/agentpulse-bridge/internal/xdgpaths"
 )
 
@@ -156,4 +158,112 @@ func TestClassifyAndSpoolFullSessionLifecycle(t *testing.T) {
 	if len(entries) != 0 {
 		t.Errorf("expected no scratch files left after SessionEnd, got %v", entries)
 	}
+}
+
+// TestClassifyAndSpoolTaskLabelFollowsWatchlistSettings is P5-23's proof
+// that "agentpulse hook" reads BR-17's task-label opt-in from the same
+// file "agentpulse flush" writes it to (watchlist.json's
+// Settings.TaskLabel, applied from a batch response exactly as flush.go
+// does): off by default, the label appears once the setting is turned
+// on, bounded to 80 characters and first line only, and disappears again
+// once it is turned off — all without a real home directory.
+func TestClassifyAndSpoolTaskLabelFollowsWatchlistSettings(t *testing.T) {
+	setTestXDGDirs(t)
+
+	longFirstLine := strings.Repeat("word ", 30) + "tail" // > 80 runes once collapsed
+	prompt := []byte(`{"hook_event_name":"UserPromptSubmit","session_id":"sess_label","cwd":"/nonexistent/proj","prompt":"` +
+		longFirstLine + `\nsecond line never sent"}`)
+	stop := []byte(`{"hook_event_name":"Stop","session_id":"sess_label","cwd":"/nonexistent/proj"}`)
+
+	// Off by default: no watchlist.json has been written yet.
+	if err := classifyAndSpool(prompt); err != nil {
+		t.Fatalf("classifyAndSpool() (off) returned error: %v", err)
+	}
+	if label, ok := lastPromptTaskLabel(t); ok {
+		t.Errorf("task_label = %q with the setting off, want no field", label)
+	}
+
+	// The relay turns it on: this writes exactly what flush.go writes
+	// after a batch response names Settings (BR-17, P5-16) — the write
+	// path and the read path now share this one file.
+	setWatchlistTaskLabel(t, true)
+	if err := classifyAndSpool(stop); err != nil { // re-arms BR-17's per-prompt gate
+		t.Fatalf("classifyAndSpool() (stop) returned error: %v", err)
+	}
+	if err := classifyAndSpool(prompt); err != nil {
+		t.Fatalf("classifyAndSpool() (on) returned error: %v", err)
+	}
+	label, ok := lastPromptTaskLabel(t)
+	if !ok {
+		t.Fatal("task_label missing with the setting on")
+	}
+	if strings.Contains(label, "second line") {
+		t.Errorf("task_label = %q, want only the first line", label)
+	}
+	if r := len([]rune(label)); r > 80 {
+		t.Errorf("task_label is %d runes, want at most 80", r)
+	}
+
+	// The relay turns it off again.
+	setWatchlistTaskLabel(t, false)
+	if err := classifyAndSpool(stop); err != nil {
+		t.Fatalf("classifyAndSpool() (stop) returned error: %v", err)
+	}
+	if err := classifyAndSpool(prompt); err != nil {
+		t.Fatalf("classifyAndSpool() (off again) returned error: %v", err)
+	}
+	if label, ok := lastPromptTaskLabel(t); ok {
+		t.Errorf("task_label = %q with the setting off again, want no field", label)
+	}
+}
+
+// setWatchlistTaskLabel writes watchlist.json's Settings.TaskLabel
+// exactly as "agentpulse flush" would after a batch response named it
+// (flush.go), without touching the relay or any real home directory.
+func setWatchlistTaskLabel(t *testing.T, on bool) {
+	t.Helper()
+	path := xdgpaths.WatchListPath()
+	f := watch.Load(path)
+	f.Settings = &relay.Settings{TaskLabel: on}
+	if err := watch.Save(path, f); err != nil {
+		t.Fatalf("watch.Save() error: %v", err)
+	}
+}
+
+// lastPromptTaskLabel returns the task_label of the most recently
+// spooled prompt_submitted event, and whether the field was present at
+// all (BR-17: omitted, not empty-stringed, when off).
+func lastPromptTaskLabel(t *testing.T) (string, bool) {
+	t.Helper()
+	data, err := os.ReadFile(xdgpaths.SpoolPath()) //nolint:gosec // test-controlled temp path
+	if err != nil {
+		t.Fatalf("reading spool: %v", err)
+	}
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	var lastPrompt json.RawMessage
+	for scanner.Scan() {
+		var ev classify.Event
+		line := append([]byte(nil), scanner.Bytes()...)
+		if err := json.Unmarshal(line, &ev); err != nil {
+			t.Fatalf("spool line is not valid JSON: %v (%q)", err, string(line))
+		}
+		if ev.Type == classify.TypePromptSubmitted {
+			lastPrompt = line
+		}
+	}
+	if lastPrompt == nil {
+		t.Fatal("no prompt_submitted event found in the spool")
+	}
+	var payload struct {
+		Payload struct {
+			TaskLabel *string `json:"task_label"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(lastPrompt, &payload); err != nil {
+		t.Fatalf("re-parsing spooled prompt_submitted event: %v", err)
+	}
+	if payload.Payload.TaskLabel == nil {
+		return "", false
+	}
+	return *payload.Payload.TaskLabel, true
 }
