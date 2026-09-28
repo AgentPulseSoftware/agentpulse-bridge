@@ -476,6 +476,8 @@ func TestParseEventIndex(t *testing.T) {
 	}{
 		{"events.3.type: invalid enum value", 3, true},
 		{"events.0.bridge_id: must match the authenticated bridge", 0, true},
+		{"events.2: unexpected field subagent", 2, true},
+		{"events.12x: not an index", 0, false},
 		{"(root): invalid request body", 0, false},
 		{"", 0, false},
 		{"events.type: missing index", 0, false},

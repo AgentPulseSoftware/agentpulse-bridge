@@ -11,6 +11,8 @@ import (
 // name: "the bridge never sends tool_input, tool_response, prompt, cwd, or
 // transcript_path values", enforced (per BR-19) "by the event type
 // definitions (section 10.1), which have no fields that could carry them".
+// agent_id and agent_transcript_path, which subagent hooks carry, join
+// them (card P5-18): only a one-way hash of agent_id is ever sent.
 //
 // TestEventStructHasNoForbiddenFields below reflects over the payload
 // types eventAndPayloadTypes() names and checks each field's name and json
@@ -31,6 +33,7 @@ import (
 // whether its Go type is named in eventAndPayloadTypes below.
 var forbiddenFieldNames = []string{
 	"cwd", "prompt", "tool_input", "tool_response", "transcript_path",
+	"agent_id", "agent_transcript_path",
 }
 
 // eventAndPayloadTypes lists Event and every payload type defined in
@@ -53,6 +56,7 @@ func eventAndPayloadTypes() []reflect.Type {
 		reflect.TypeOf(EmptyPayload{}),
 		reflect.TypeOf(PRCreatedPayload{}),
 		reflect.TypeOf(SessionEndPayload{}),
+		reflect.TypeOf(Subagent{}),
 	}
 }
 

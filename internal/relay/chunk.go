@@ -21,8 +21,10 @@ const batchOverheadBytes = 48
 
 // eventIndexPattern extracts the event index from a relay 400 body's
 // "detail" field: the relay's request validation renders a per-event
-// issue as "events.<N>.<field...>: message".
-var eventIndexPattern = regexp.MustCompile(`^events\.(\d+)\.`)
+// issue as "events.<N>.<field...>: message", and an issue with the event
+// object itself, such as a field it does not know, as
+// "events.<N>: message".
+var eventIndexPattern = regexp.MustCompile(`^events\.(\d+)[.:]`)
 
 // nextChunk builds one chunk from the front of events: as many events, in
 // order, as fit within MaxEventsPerChunk and MaxChunkBytes, appending
