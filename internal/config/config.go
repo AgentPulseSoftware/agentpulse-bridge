@@ -1,13 +1,16 @@
 // Package config reads and writes the bridge's local configuration file
 // (BR-05: $XDG_CONFIG_HOME/agentpulse/config.json, mode 0600), holding
 // the fields "agentpulse hook" reads on every invocation (BridgeID,
-// TaskLabel) plus the pairing-related field "agentpulse flush" needs
-// (PairedAt). This is the full record BR-05/BR-06/BR-16/BR-17 describe,
+// KeepAwake) plus the pairing-related field "agentpulse flush" needs
+// (PairedAt). This is the full record BR-05/BR-06/BR-16 describe,
 // with atomic writes, unknown-field preservation, and no BridgeSecret
 // field at all: the secret lives only in internal/cred's platform
 // credential store (SEC-02, SEC-14 — "never keep the secret in the
 // config file when a platform store is available"), never in
-// config.json.
+// config.json. BR-17's task-label opt-in is relay-driven like
+// BR-10/BR-11's watch list, so (P5-23) it lives on internal/watch.File's
+// Settings (watchlist.json), not here — see knownConfigKeys' "task_label"
+// entry.
 package config
 
 import (
@@ -41,11 +44,6 @@ type Config struct {
 	// 11.5), empty in a normal install where the compiled-in production
 	// host is used.
 	Relay string `json:"relay,omitempty"`
-	// TaskLabel is BR-17's opt-in: whether the bridge sends the first
-	// line of each prompt (truncated, whitespace-collapsed) as a task
-	// label. Relay-driven: written back locally whenever a batch
-	// response's Settings names it.
-	TaskLabel bool `json:"task_label,omitempty"`
 	// KeepAwake is BR-16's opt-in: whether "agentpulse hook" spawns
 	// caffeinate/systemd-inhibit on session_start. Default false.
 	KeepAwake bool `json:"keep_awake,omitempty"`
@@ -66,14 +64,24 @@ type Config struct {
 // It stays in this list, not on Config, so an existing config.json
 // that still carries it has the key stripped on the next Save instead of
 // being preserved forever in extra.
+//
+// "task_label" is the same kind of key, added here by P5-23: an earlier
+// build wrote BR-17's opt-in to this file, but "agentpulse flush" only
+// ever persisted the relay's answer in internal/watch.File's Settings
+// (watchlist.json) — the write path and the read path disagreed, so the
+// setting never took effect. The one source of truth is now
+// watchlist.json's Settings.TaskLabel, read directly by "agentpulse
+// hook" (cmd/agentpulse/hook_classify.go); "task_label" stays listed
+// here only so a config.json left over from before this fix has the key
+// dropped on its next Save instead of lingering in extra forever.
 var knownConfigKeys = []string{
 	"bridge_id", "paired_at", "device_name", "relay",
 	"task_label", "keep_awake", "watch_new_projects",
 }
 
 // Default returns the configuration an unpaired bridge has: the
-// placeholder bridge_id, no secret store lookup attempted, task labels
-// off, keep-awake off.
+// placeholder bridge_id, no secret store lookup attempted, keep-awake
+// off.
 func Default() Config {
 	return Config{BridgeID: UnpairedBridgeID}
 }

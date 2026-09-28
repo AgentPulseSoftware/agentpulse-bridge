@@ -39,7 +39,15 @@ func classifyAndSpool(raw []byte) error {
 	cfg, cfgErr := config.Load(xdgpaths.ConfigPath())
 	input.BridgeID = cfg.BridgeID
 	input.BridgeVersion = version
-	input.TaskLabelOn = cfg.TaskLabel
+	// BR-17's task-label opt-in is relay-driven, like BR-10/BR-11's watch
+	// list, and travels in the very same batch response (P5-16): the one
+	// place "agentpulse flush" persists it is watchlist.json's Settings
+	// (see flush.go), so that is the only place read here too (P5-23 —
+	// an earlier build read a config.json field nothing wrote back to
+	// anymore). wl is loaded once and reused below by
+	// applyWatchDecision, instead of a second read of the same file.
+	wl := watch.Load(xdgpaths.WatchListPath())
+	input.TaskLabelOn = wl.Settings != nil && wl.Settings.TaskLabel
 	input.Now = time.Now().UTC()
 	// ADR-005, D72: a subagent's hooks are always classified as its own
 	// chain, except while flush's fallback has switched that off.
@@ -109,7 +117,7 @@ func classifyAndSpool(raw []byte) error {
 
 	var watchErr error
 	if ok {
-		ok, watchErr = applyWatchDecision(event, input.Now)
+		ok, watchErr = applyWatchDecision(&wl, event, input.Now)
 	}
 
 	var spoolErr error
@@ -169,14 +177,14 @@ func maybeStartKeepAwake(input classify.HookInput, cfg config.Config, state *cla
 // A watched (or unknown, watch-new-projects-on) project's event passes
 // through unchanged. Returns whether the caller should still spool event.
 //
-// Loading and, only when the decision needs it, saving watchlist.json is
-// this function's entire local I/O cost beyond what classifyAndSpool
-// already pays — BR-02's 50ms budget, cheapest exactly on the Drop path
-// (internal/watch.Decide's own doc comment).
-func applyWatchDecision(event *classify.Event, now time.Time) (keep bool, err error) {
-	path := xdgpaths.WatchListPath()
-	f := watch.Load(path)
-	decision := f.Decide(event.Project.KeyHash, event.Project.Name, now)
+// wl is watchlist.json already loaded by the caller (classifyAndSpool
+// also reads its Settings.TaskLabel from it, P5-23), so this function's
+// only local I/O cost beyond what classifyAndSpool already pays is,
+// when the decision needs it, saving it back — BR-02's 50ms budget,
+// cheapest exactly on the Drop path (internal/watch.Decide's own doc
+// comment).
+func applyWatchDecision(wl *watch.File, event *classify.Event, now time.Time) (keep bool, err error) {
+	decision := wl.Decide(event.Project.KeyHash, event.Project.Name, now)
 	switch decision {
 	case watch.DecisionDrop:
 		return false, nil
@@ -190,7 +198,7 @@ func applyWatchDecision(event *classify.Event, now time.Time) (keep bool, err er
 		event.Type = classify.TypeProjectSeen
 		event.Payload = classify.EmptyPayload{}
 	}
-	return true, watch.Save(path, f)
+	return true, watch.Save(xdgpaths.WatchListPath(), *wl)
 }
 
 // firstError returns the first non-nil error among errs, or nil. Every

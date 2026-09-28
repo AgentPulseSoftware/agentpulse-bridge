@@ -16,9 +16,6 @@ func TestLoadMissingFileYieldsDefault(t *testing.T) {
 	if cfg.BridgeID != UnpairedBridgeID {
 		t.Errorf("BridgeID = %q, want %q", cfg.BridgeID, UnpairedBridgeID)
 	}
-	if cfg.TaskLabel {
-		t.Errorf("TaskLabel = true, want false by default")
-	}
 }
 
 func TestLoadMalformedFileYieldsDefault(t *testing.T) {
@@ -37,7 +34,7 @@ func TestLoadMalformedFileYieldsDefault(t *testing.T) {
 
 func TestLoadValidFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(path, []byte(`{"bridge_id":"brg_abc123","task_label":true}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"bridge_id":"brg_abc123","keep_awake":true}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := Load(path)
@@ -47,14 +44,14 @@ func TestLoadValidFile(t *testing.T) {
 	if cfg.BridgeID != "brg_abc123" {
 		t.Errorf("BridgeID = %q, want brg_abc123", cfg.BridgeID)
 	}
-	if !cfg.TaskLabel {
-		t.Errorf("TaskLabel = false, want true")
+	if !cfg.KeepAwake {
+		t.Errorf("KeepAwake = false, want true")
 	}
 }
 
 func TestLoadEmptyBridgeIDGetsPlaceholder(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(path, []byte(`{"bridge_id":"","task_label":false}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"bridge_id":"","keep_awake":false}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := Load(path)
@@ -73,7 +70,6 @@ func TestSaveThenLoadRoundTrips(t *testing.T) {
 		PairedAt:   "2026-09-13T00:00:00Z",
 		DeviceName: "Sam's iPhone",
 		Relay:      "",
-		TaskLabel:  true,
 		KeepAwake:  true,
 	}
 	if err := Save(path, want); err != nil {
@@ -87,9 +83,52 @@ func TestSaveThenLoadRoundTrips(t *testing.T) {
 		got.PairedAt != want.PairedAt ||
 		got.DeviceName != want.DeviceName ||
 		got.Relay != want.Relay ||
-		got.TaskLabel != want.TaskLabel ||
 		got.KeepAwake != want.KeepAwake {
 		t.Errorf("round trip = %+v, want %+v", got, want)
+	}
+}
+
+// TestLoadLegacyTaskLabelKeyLoadsAndIsStrippedOnSave covers the case
+// where a config.json written before P5-23 still carries "task_label"
+// (BR-17's opt-in): that build wrote it here, but "agentpulse flush"
+// only ever persisted the relay's answer into
+// internal/watch.File.Settings.TaskLabel (watchlist.json), so this key
+// never actually gated anything. Load must still tolerate it, and a
+// subsequent Save must drop it (not silently perpetuate a value nothing
+// reads) while preserving a genuinely unknown field.
+func TestLoadLegacyTaskLabelKeyLoadsAndIsStrippedOnSave(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	original := `{"bridge_id":"brg_abc","task_label":true,"some_future_field":"kept-me"}`
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() returned error for a config with the legacy key: %v", err)
+	}
+
+	if err := Save(path, cfg); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("re-parsing saved config: %v", err)
+	}
+	if _, present := raw["task_label"]; present {
+		t.Error("task_label was written back by Save(), want it dropped")
+	}
+	future, ok := raw["some_future_field"]
+	if !ok {
+		t.Fatal("some_future_field was dropped by Save(), want it preserved")
+	}
+	if string(future) != `"kept-me"` {
+		t.Errorf("some_future_field = %s, want %q", future, "kept-me")
 	}
 }
 
@@ -154,7 +193,7 @@ func TestSaveFileMode(t *testing.T) {
 // this binary, must not lose a field this binary doesn't know about.
 func TestSavePreservesUnknownFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	original := `{"bridge_id":"brg_abc","task_label":true,"future_field":"kept-me"}`
+	original := `{"bridge_id":"brg_abc","keep_awake":true,"future_field":"kept-me"}`
 	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
 		t.Fatal(err)
 	}
