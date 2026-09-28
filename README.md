@@ -69,6 +69,7 @@ The payload depends on the type and is just as narrow:
 | `verification_finished` | the same, plus `pass`/`fail`/`unknown` and pass/fail/total counts |
 | `needs_input` | why: `permission`, `question`, or `plan`, plus a coarse tool category |
 | `input_resolved`, `commit`, `stop`, `project_seen` | nothing |
+| `subagent_start`, `subagent_stop` | nothing (see "The privacy model" below) |
 | `pr_created` | the pull request number, if one was printed |
 | `session_end` | a reason: `clear`, `logout`, `prompt_input_exit`, `other` |
 
@@ -78,7 +79,7 @@ variables, your branch names, or your commit messages — not scrubbed
 versions of them, not truncated versions of them, not hashed versions of
 them beyond the project key hash above. The directory name of a project is
 the one human-readable string that leaves the machine, and only for projects
-you are watching.
+you are watching; a subagent's type name (see "The privacy model") is the other.
 
 Three mechanisms keep it that way, and all three are in this repository:
 
@@ -87,7 +88,8 @@ Three mechanisms keep it that way, and all three are in this repository:
    serialised and sent; there is no map, no "extra" field, and no passthrough
    of the hook JSON. `internal/classify/br19_test.go` reflects over every
    event and payload type and fails if a field named `cwd`, `prompt`,
-   `tool_input`, `tool_response`, or `transcript_path` ever appears.
+   `tool_input`, `tool_response`, `transcript_path`, `agent_id`, or
+   `agent_transcript_path` ever appears.
 2. **The relay's own validation** — every event is validated against the
    published `event.v1` JSON Schema, which sets `additionalProperties: false`
    on every variant, so an unknown field is rejected rather than stored.
@@ -114,6 +116,16 @@ it does with them beyond that is documented with the relay, not here.
   proceeds — a fixable local slip is corrected in place rather than turned
   into a hard failure. See `internal/cred`. Nothing is ever written to the
   repository, to a log, or to the event stream.
+- **Subagents are reported by type name and an unreadable id.** When
+  Claude Code runs a subagent, the events that happen inside it (and its
+  start and stop) carry one extra object: the first 16 hex characters of
+  a SHA-256 hash of Claude Code's `agent_id`, which cannot be turned back
+  into the id, and the subagent's type name, such as `reviewer`. The name
+  is sent only if it is 1 to 40 letters, digits, `.`, `_`, `:` or `-`;
+  anything else, such as a name with a space, a slash or a quote, is sent
+  as the word `subagent`. The raw `agent_id`, the subagent's instructions,
+  its transcript, and what it read, ran or wrote are never sent, logged or
+  stored.
 - **All traffic is outbound.** The bridge opens HTTPS connections to the
   relay; it never listens on a port, and the relay has no way to contact your
   machine. There is nothing to dial into.

@@ -32,6 +32,10 @@ type Event struct {
 	Type      string   `json:"type"`
 	Counters  Counters `json:"counters"`
 	Payload   any      `json:"payload"`
+	// Subagent is set only on an event that happened inside a Claude
+	// Code subagent (ADR-005 section 1); it is absent from every other
+	// event, so a main-chain event marshals exactly as it always has.
+	Subagent *Subagent `json:"subagent,omitempty"`
 }
 
 // Project identifies the repository or directory a session ran in without
@@ -65,6 +69,10 @@ const (
 	TypeCommit               = "commit"
 	TypeStop                 = "stop"
 	TypeSessionEnd           = "session_end"
+	// TypeSubagentStart and TypeSubagentStop always carry Subagent and
+	// an empty payload (ADR-005 section 1).
+	TypeSubagentStart = "subagent_start"
+	TypeSubagentStop  = "subagent_stop"
 	// TypeProjectSeen is never produced by Classify itself: BR-10's
 	// throttled substitute for a dropped, unwatched project's event,
 	// built by cmd/agentpulse (internal/watch's gating) out of an

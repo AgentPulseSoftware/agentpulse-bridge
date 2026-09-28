@@ -14,6 +14,7 @@ import (
 	"github.com/agentpulsesoftware/agentpulse-bridge/internal/config"
 	"github.com/agentpulsesoftware/agentpulse-bridge/internal/cred"
 	"github.com/agentpulsesoftware/agentpulse-bridge/internal/lockfile"
+	"github.com/agentpulsesoftware/agentpulse-bridge/internal/logging"
 	"github.com/agentpulsesoftware/agentpulse-bridge/internal/relay"
 	"github.com/agentpulsesoftware/agentpulse-bridge/internal/scratch"
 	"github.com/agentpulsesoftware/agentpulse-bridge/internal/spool"
@@ -194,6 +195,10 @@ func runFlush(deps flushDeps) {
 
 	wlFile := watch.Load(xdgpaths.WatchListPath())
 	fstate := state.Load(xdgpaths.StatePath())
+	if subagentsPaused(fstate, deps.now()) {
+		// Events spooled before the pause began still carry the field.
+		batch = stripSubagents(batch)
+	}
 	cur := batch
 	retryAttempt := 0
 	rateLimitRetries := 0
@@ -221,7 +226,15 @@ runLoop:
 				fstate.LastEvent = le
 			}
 		}
-		cur = removeResolved(cur, resp.Sent, resp.Dropped)
+		dropped, rejectedSubagents := splitSubagentRejections(cur, resp.Dropped)
+		cur = removeResolved(cur, resp.Sent, dropped)
+		if rejectedSubagents > 0 {
+			// ADR-005 section 8: this relay does not accept the field.
+			// Resend without it, and stop marking for a while.
+			fstate.SubagentsOffUntil = deps.now().Add(subagentFallbackPeriod).UTC().Format(time.RFC3339)
+			cur = stripSubagents(cur)
+			logging.Get().Info("agentpulse flush: relay rejected the subagent field; resending without it and pausing subagent marking for an hour")
+		}
 
 		if sendErr == nil {
 			outcome = state.OutcomeOK
@@ -239,9 +252,10 @@ runLoop:
 		switch se.Kind {
 		case relay.KindBadRequest:
 			// ERR-03: the offending event, if the relay named one, is
-			// already excluded from cur via resp.Dropped above — retry
-			// the rest right away, this isn't a transient condition a
-			// backoff would help with.
+			// already excluded from cur via dropped above (or, if it
+			// carried `subagent`, stripped of it) — retry the rest right
+			// away, this isn't a transient condition a backoff would
+			// help with.
 			outcome = state.OutcomeSchemaError
 			if se.RequiredBridgeVersion != "" {
 				fstate.RequiredBridgeVersion = se.RequiredBridgeVersion
@@ -251,8 +265,8 @@ runLoop:
 			// best-effort peek at the "type" field, never the payload;
 			// see bestEffortType), so this is the whole event that ever
 			// reaches the log.
-			for _, dropped := range resp.Dropped {
-				debugf(deps.stderr, deps.debug, "agentpulse flush: relay rejected event type %q (schema error), dropping it", dropped.Type)
+			for _, d := range dropped {
+				debugf(deps.stderr, deps.debug, "agentpulse flush: relay rejected event type %q (schema error), dropping it", d.Type)
 			}
 			if len(resp.Dropped) == 0 {
 				// No event could be identified: nothing changed, retrying

@@ -75,3 +75,21 @@ func BenchmarkHook(b *testing.B) {
 		runHook(bytes.NewReader(raw), "", false, io.Discard)
 	}
 }
+
+// BenchmarkClassifyAndSpoolSubagent is BenchmarkClassifyAndSpool for a
+// hook fired inside a subagent (card P5-18): the same work plus reading
+// state.json for the fallback pause and the per-chain scratch.
+func BenchmarkClassifyAndSpoolSubagent(b *testing.B) {
+	b.Setenv("XDG_CONFIG_HOME", b.TempDir())
+	b.Setenv("XDG_STATE_HOME", b.TempDir())
+
+	raw := []byte(`{"hook_event_name":"PreToolUse","session_id":"sess_bench","cwd":"/nonexistent/agentpulse-bench-project","tool_name":"Bash","tool_input":{"command":"pytest -q tests/"},"agent_id":"bench-agent-0001","agent_type":"reviewer"}`)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := classifyAndSpool(raw); err != nil {
+			b.Fatalf("classifyAndSpool() returned error: %v", err)
+		}
+	}
+}

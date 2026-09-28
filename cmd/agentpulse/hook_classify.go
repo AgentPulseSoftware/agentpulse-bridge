@@ -41,6 +41,13 @@ func classifyAndSpool(raw []byte) error {
 	input.BridgeVersion = version
 	input.TaskLabelOn = cfg.TaskLabel
 	input.Now = time.Now().UTC()
+	// ADR-005, D72: a subagent's hooks are always classified as its own
+	// chain, except while flush's fallback has switched that off.
+	// state.json is read only for a hook that carries agent_id, so the
+	// main session's hooks pay nothing for this (BR-02).
+	if input.AgentID != "" {
+		input.SubagentsOn = subagentsOn(input.Now)
+	}
 
 	stateDir := xdgpaths.StateDir()
 	// Load, Classify, and Save below are a read-modify-write sequence
@@ -96,7 +103,7 @@ func classifyAndSpool(raw []byte) error {
 	saveErr := scratch.Save(stateDir, input.SessionID, state)
 
 	var deleteErr error
-	if input.HookEventName == classify.HookSessionEnd {
+	if input.HookEventName == classify.HookSessionEnd && !input.InSubagent() {
 		deleteErr = scratch.Delete(stateDir, input.SessionID)
 	}
 
@@ -174,6 +181,12 @@ func applyWatchDecision(event *classify.Event, now time.Time) (keep bool, err er
 	case watch.DecisionDrop:
 		return false, nil
 	case watch.DecisionEmitProjectSeen:
+		if event.Subagent != nil {
+			// The relay rejects `subagent` on project_seen (ADR-005
+			// section 1): send nothing, and leave the throttle unspent
+			// for the main chain's next event.
+			return false, nil
+		}
 		event.Type = classify.TypeProjectSeen
 		event.Payload = classify.EmptyPayload{}
 	}

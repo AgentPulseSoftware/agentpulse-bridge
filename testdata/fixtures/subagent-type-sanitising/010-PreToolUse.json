@@ -1,0 +1,1 @@
+{"hook_event_name": "PreToolUse","session_id": "sess_subagent_type_sanitising","cwd": "/scrubbed/e5e5e5e5","transcript_path": "/scrubbed/transcript.jsonl","tool_name": "Read","tool_input": {"file_path": "/scrubbed/file.txt"},"agent_id": "e5f6a7b8c9d00005","agent_type": "/scrubbed/agents/reviewer"}

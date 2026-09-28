@@ -476,6 +476,8 @@ func TestParseEventIndex(t *testing.T) {
 	}{
 		{"events.3.type: invalid enum value", 3, true},
 		{"events.0.bridge_id: must match the authenticated bridge", 0, true},
+		{"events.2: unexpected field subagent", 2, true},
+		{"events.12x: not an index", 0, false},
 		{"(root): invalid request body", 0, false},
 		{"", 0, false},
 		{"events.type: missing index", 0, false},
@@ -484,6 +486,27 @@ func TestParseEventIndex(t *testing.T) {
 		idx, ok := parseEventIndex(tt.detail)
 		if ok != tt.wantOK || (ok && idx != tt.wantIdx) {
 			t.Errorf("parseEventIndex(%q) = (%d, %v), want (%d, %v)", tt.detail, idx, ok, tt.wantIdx, tt.wantOK)
+		}
+	}
+}
+
+func TestParseUnexpectedField(t *testing.T) {
+	tests := []struct {
+		detail string
+		want   string
+	}{
+		{"events.2: unexpected field subagent", "subagent"},
+		{"events.0: unexpected field task_label", "task_label"},
+		{"events.2: unexpected field subagent, extra", ""},
+		{"events.2: unexpected field Subagent", ""},
+		{"events.2.subagent: unexpected field subagent", ""},
+		{"events.2: Invalid enum value", ""},
+		{"(root): unexpected field subagent", ""},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		if got := parseUnexpectedField(tt.detail); got != tt.want {
+			t.Errorf("parseUnexpectedField(%q) = %q, want %q", tt.detail, got, tt.want)
 		}
 	}
 }

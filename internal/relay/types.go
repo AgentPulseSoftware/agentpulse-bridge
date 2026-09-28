@@ -30,6 +30,11 @@ type Settings struct {
 type DroppedEvent struct {
 	Index int
 	Type  string
+
+	// UnexpectedField is set when the relay's 400 said this event
+	// carried a field it does not know, and names that field: a schema
+	// key such as "subagent", never other text from the response body.
+	UnexpectedField string
 }
 
 // Response is PostEvents' result. Sent is always populated, even when

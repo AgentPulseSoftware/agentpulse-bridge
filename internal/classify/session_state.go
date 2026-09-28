@@ -25,6 +25,59 @@ type SessionState struct {
 	VerificationRuns int `json:"verification_runs"`
 	Commits          int `json:"commits"`
 
+	// ChainState is the main chain's bookkeeping (suppression, pending
+	// markers, needs-input times). Embedded, so its fields keep the JSON
+	// keys they had before subagent chains existed and a scratch file
+	// written by an older bridge still loads into the main chain.
+	ChainState
+
+	// Subagents holds each subagent chain's own ChainState, keyed by
+	// SubagentID (never the raw agent_id), so a subagent's read cannot
+	// suppress the main chain's and one chain's permission is never
+	// resolved by another's tool call (ADR-005). Counters above stay per
+	// session. See chain for the cap.
+	Subagents map[string]*ChainState `json:"subagents,omitempty"`
+
+	// Overflow is the one ChainState every subagent beyond the cap
+	// shares (see chain). It is never the main chain's, so a crowd of
+	// subagents can neither consume the main chain's pending markers nor
+	// suppress its reads.
+	Overflow *ChainState `json:"subagent_overflow,omitempty"`
+
+	// LastPermissionRequestAt is set whenever a PermissionRequest hook is
+	// classified, in any chain, and is the specific dedup key SPEC 7.2
+	// names: a Notification permission_prompt within 5 seconds of this
+	// timestamp is treated as the same underlying prompt and produces no
+	// event. It is per session rather than per chain because a
+	// Notification may not carry the agent_id of the subagent whose
+	// PermissionRequest it repeats (COMPATIBILITY.md), so it cannot be
+	// matched to a chain.
+	LastPermissionRequestAt time.Time `json:"last_permission_request_at,omitempty"`
+
+	// Project is the main chain's project from its last emitted event.
+	// A subagent's events report it rather than re-deriving one from the
+	// subagent's own cwd, so a subagent that changes directory does not
+	// create a new project (card P5-18 step 5).
+	Project *Project `json:"project,omitempty"`
+
+	// AwaitingTaskLabel implements BR-17's "once per session on the first
+	// prompt and again after a stop": true for a brand new session, set
+	// false once a prompt_submitted event includes task_label, and set
+	// true again whenever a `stop` is classified.
+	AwaitingTaskLabel bool `json:"awaiting_task_label"`
+
+	// KeepAwakePID is BR-16's duplicate-spawn guard: the PID of the
+	// caffeinate/systemd-inhibit process "agentpulse hook" already
+	// spawned for this session's SessionStart, or 0 if it hasn't (keep-
+	// awake off, or unsupported on this platform). Local scratch
+	// bookkeeping only — never part of the wire event schema (SPEC
+	// 10.1), so no ADR is needed for it.
+	KeepAwakePID int `json:"keep_awake_pid,omitempty"`
+}
+
+// ChainState is the per-chain part of a session's scratch: one for the
+// main chain (embedded in SessionState) and one per live subagent.
+type ChainState struct {
 	// LastEmittedCategory and LastEmittedAt implement SPEC 7.2's
 	// suppression rule: an `activity` event is emitted only when its
 	// category differs from LastEmittedCategory, or 5 minutes have passed
@@ -40,12 +93,6 @@ type SessionState struct {
 	// (BR-05 lists it as a required scratch field); nothing in this package
 	// consults it beyond keeping it current.
 	LastNeedsInputAt time.Time `json:"last_needs_input_at,omitempty"`
-
-	// LastPermissionRequestAt is set only when a PermissionRequest hook is
-	// classified, and is the specific dedup key SPEC 7.2 names: a
-	// Notification permission_prompt within 5 seconds of this timestamp is
-	// treated as the same underlying prompt and produces no event.
-	LastPermissionRequestAt time.Time `json:"last_permission_request_at,omitempty"`
 
 	// PRPending and CommitPending mark that the immediately preceding
 	// PreToolUse was a `gh pr create` / `git commit` Bash call, for the
@@ -63,20 +110,49 @@ type SessionState struct {
 	// every PreToolUse.
 	PendingVerification *PendingVerification `json:"pending_verification,omitempty"`
 	PendingNeedsInput   *PendingNeedsInput   `json:"pending_needs_input,omitempty"`
+}
 
-	// AwaitingTaskLabel implements BR-17's "once per session on the first
-	// prompt and again after a stop": true for a brand new session, set
-	// false once a prompt_submitted event includes task_label, and set
-	// true again whenever a `stop` is classified.
-	AwaitingTaskLabel bool `json:"awaiting_task_label"`
+// maxSubagentChains caps SessionState.Subagents (card P5-18).
+const maxSubagentChains = 16
 
-	// KeepAwakePID is BR-16's duplicate-spawn guard: the PID of the
-	// caffeinate/systemd-inhibit process "agentpulse hook" already
-	// spawned for this session's SessionStart, or 0 if it hasn't (keep-
-	// awake off, or unsupported on this platform). Local scratch
-	// bookkeeping only — never part of the wire event schema (SPEC
-	// 10.1), so no ADR is needed for it.
-	KeepAwakePID int `json:"keep_awake_pid,omitempty"`
+// idleChainAge is how long a subagent chain may go without an emitted
+// event before chain may evict it to make room. SubagentStop, which
+// deletes a chain, is not registered on every machine (card P5-21), so
+// without this a long session would fill the map with finished
+// subagents.
+const idleChainAge = time.Hour
+
+// chain returns the ChainState for subagent id, or the main chain's for
+// "". A new subagent gets its own entry while there is room; at the cap,
+// entries idle for idleChainAge are evicted first, and if the map is
+// still full the subagent shares Overflow with every other subagent that
+// found no room (its events still carry their `subagent` envelope).
+func (s *SessionState) chain(id string, now time.Time) *ChainState {
+	if id == "" {
+		return &s.ChainState
+	}
+	if c, ok := s.Subagents[id]; ok {
+		return c
+	}
+	if len(s.Subagents) >= maxSubagentChains {
+		for k, c := range s.Subagents {
+			if now.Sub(c.LastEmittedAt) >= idleChainAge {
+				delete(s.Subagents, k)
+			}
+		}
+	}
+	if len(s.Subagents) >= maxSubagentChains {
+		if s.Overflow == nil {
+			s.Overflow = &ChainState{}
+		}
+		return s.Overflow
+	}
+	if s.Subagents == nil {
+		s.Subagents = map[string]*ChainState{}
+	}
+	c := &ChainState{}
+	s.Subagents[id] = c
+	return c
 }
 
 // PendingVerification records what a PreToolUse Bash verification call

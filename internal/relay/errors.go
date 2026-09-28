@@ -81,6 +81,11 @@ type StatusError struct {
 	// slice) before returning, which is the only form callers outside
 	// this package ever see.
 	eventIndex int
+
+	// unexpectedField is the field name the 400 said that event carried
+	// but the relay does not know, or "" (see parseUnexpectedField). Like
+	// eventIndex it only reaches callers through Response.DroppedEvent.
+	unexpectedField string
 }
 
 func (e *StatusError) Error() string {

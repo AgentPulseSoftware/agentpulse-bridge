@@ -79,6 +79,18 @@ testdata/fixtures/
   You Left recap SPEC 9.3 would generate from this scenario's events and
   confirmed it reads sensibly. It starts `false` (or absent) when a scenario
   is first added.
+- `subagent_events` (optional) is the answer key for the bridge's normal
+  mode, where hooks fired inside a subagent are classified as their own
+  chain (ADR-005). `make fixtures` replays every scenario twice: once in
+  that normal mode, compared to `subagent_events` when present and to
+  `events` otherwise, and once with subagent classification paused the
+  way the flush fallback pauses it, compared to `events`. Unlike payload
+  fields, an event's `subagent` object is checked strictly: an expected
+  event without one requires the actual event to have none, and in the
+  paused replay no event may carry one. `final_state` is checked in both
+  replays; in the normal one it is computed from the events without
+  `subagent` only, because the session's own state follows its main
+  chain (D71).
 - `synthetic` is `true` for a scenario hand-authored in the scrubbed shape
   rather than recorded from a real Claude Code session and scrubbed;
   absent (or `false`) for one recorded from a real session. It exists so
@@ -100,8 +112,9 @@ The full list to record (SPEC 18):
 - `gh pr create`
 - One session per SPEC 7.5 runner: pytest, Jest, Vitest, Mocha, an `npm`/
   `pnpm`/`yarn`/`bun` test script, `go test`, Cargo, Swift, and xcodebuild
-- Subagent hooks (D69, ADR-005, card P5-14): `subagent-single`,
-  `subagent-permission`, `subagent-parallel` — see below.
+- Subagent hooks (D69, ADR-005, cards P5-14 and P5-18): `subagent-single`,
+  `subagent-permission`, `subagent-parallel`, `subagent-type-sanitising`
+  — see below.
 
 Each scenario gets its own directory. A runner-specific scenario should be
 named after the runner, e.g. `verify-pytest`, `verify-go-test`, so the
@@ -119,11 +132,16 @@ a non-interactive run with pre-approved tools), so its shape is inferred
 from the general `PermissionRequest` shape already recorded elsewhere in
 this corpus, not confirmed for the subagent case.
 
-Their `expected.json` is **today's** classifier output — the "Show
-subagents off" baseline (D69's setting defaults off): the classifier does
-not parse `agent_id`/`agent_type` at all today, and explicitly ignores the
-`SubagentStart`/`SubagentStop` hook names, so a subagent's activity folds
-into its parent session exactly as if the tool calls had happened at the
-top level. Card P5-18 (chains, "Show subagents" on) adds each scenario's
-"on" expectation — the same session's events, but split into per-chain
-rows — alongside this baseline, not in place of it.
+Their `events` are the classifier's output from before subagents were
+recognized, which is still its output while subagent classification is
+paused: `agent_id`/`agent_type` are ignored and the
+`SubagentStart`/`SubagentStop` hook names produce nothing, so a
+subagent's activity folds into its parent session exactly as if the tool
+calls had happened at the top level. Their `subagent_events` are the
+normal output (card P5-18): the same events, with each subagent's marked
+by its `subagent` object, plus `subagent_start` and `subagent_stop`.
+
+`subagent-type-sanitising` starts subagents whose `agent_type` is hostile
+(a path, a space, 41 characters, a quote, empty, non-ASCII) or merely
+padded with spaces, and checks that each is sent cleaned or as the
+literal `subagent` (ADR-005 section 1).
