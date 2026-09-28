@@ -173,7 +173,19 @@ func checkSettingsFile(settingsPath string, installed map[string][]string, insta
 	if len(missing) == 0 {
 		return Result{
 			Name: "settings-file", Verdict: PASS,
-			Finding: "all 8 hook events registered",
+			Finding: fmt.Sprintf("all %d hook events registered", len(claudehooks.BR08Events)),
+		}
+	}
+	if onlySubagentEvents(missing) {
+		// Subagents still show from their first tool call; only a precise
+		// start and stop is lost (ADR-005 section 3). Claude Code sends a
+		// subagent's hooks with its parent's session_id (COMPATIBILITY.md),
+		// so no parent mapping depends on SubagentStart and this never
+		// needs to be a FAIL.
+		return Result{
+			Name: "settings-file", Verdict: WARN,
+			Finding: fmt.Sprintf("%s is missing the subagent hooks: %s", settingsPath, strings.Join(missing, ", ")),
+			Remedy:  subagentHooksRemedy,
 		}
 	}
 	return Result{
@@ -181,4 +193,17 @@ func checkSettingsFile(settingsPath string, installed map[string][]string, insta
 		Finding: fmt.Sprintf("%s is missing hook registrations for: %s", settingsPath, strings.Join(missing, ", ")),
 		Remedy:  "run `agentpulse pair`",
 	}
+}
+
+// subagentHooksRemedy is the remedy when only the subagent hooks are
+// missing. The app's setup instructions name the same command.
+const subagentHooksRemedy = "Run `agentpulse pair --hooks-only` to add the subagent hooks (keeps your pairing)."
+
+func onlySubagentEvents(events []string) bool {
+	for _, e := range events {
+		if !claudehooks.IsSubagentEvent(e) {
+			return false
+		}
+	}
+	return true
 }

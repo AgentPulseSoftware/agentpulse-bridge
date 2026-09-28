@@ -27,9 +27,15 @@ func TestCheckClaudeVersion(t *testing.T) {
 		},
 		{
 			name:          "current baseline version",
-			output:        "2.1.261 (Claude Code)\n",
+			output:        "2.1.283 (Claude Code)\n",
 			wantVerdict:   PASS,
-			wantInFinding: []string{"2.1.261"},
+			wantInFinding: []string{"2.1.283"},
+		},
+		{
+			name:          "before the subagent hooks",
+			output:        "2.1.261 (Claude Code)\n",
+			wantVerdict:   WARN,
+			wantInFinding: []string{"SubagentStart, SubagentStop", "subagents will show without precise start and stop"},
 		},
 		{
 			name:          "older version",

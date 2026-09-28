@@ -1,5 +1,5 @@
 {
-  "baseline_version": "2.1.261",
+  "baseline_version": "2.1.283",
   "events": [
     {"name": "SessionStart", "min_version": "2.1.261"},
     {"name": "UserPromptSubmit", "min_version": "2.1.261"},
@@ -8,6 +8,8 @@
     {"name": "PermissionRequest", "min_version": "2.1.261"},
     {"name": "Notification", "min_version": "2.1.261"},
     {"name": "Stop", "min_version": "2.1.261"},
-    {"name": "SessionEnd", "min_version": "2.1.261"}
+    {"name": "SessionEnd", "min_version": "2.1.261"},
+    {"name": "SubagentStart", "min_version": "2.1.283"},
+    {"name": "SubagentStop", "min_version": "2.1.283"}
   ]
 }

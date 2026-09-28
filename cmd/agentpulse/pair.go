@@ -269,7 +269,7 @@ func newProgressLine(d pairDeps) (progress func(time.Duration), clear func()) {
 	return progress, clear
 }
 
-// installHooks is BR-07's second half and BR-08: build the eight entries,
+// installHooks is BR-07's second half and BR-08: build the ten entries,
 // show the diff, ask, write.
 func installHooks(d pairDeps, deviceName string) error {
 	if _, err := fmt.Fprintf(d.out, "Paired with %s.\n\n", displayName(deviceName)); err != nil {

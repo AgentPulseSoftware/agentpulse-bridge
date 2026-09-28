@@ -6,17 +6,18 @@ warns if it looks older than what has been confirmed to work (NFR-11).
 
 ## Status
 
-- Claude Code version: `2.1.261` (from `claude --version`)
-- Date: 2026-09-13
+- Claude Code version: `2.1.283` (from `claude --version`)
+- Date: 2026-09-27
 - OS: darwin (macOS)
 
-This is the version the bridge's hook field names and event names were
-written against (SPEC 7.2). It has **not** yet been confirmed against real
+This is the version the subagent hooks were recorded with (see
+"Subagent hooks" below); the other eight events' field names and event
+names were first written against `2.1.261` (SPEC 7.2). It has **not** yet been confirmed against real
 recordings. Confirming a row means running `agentpulse record install`
 with a development build and checking the row off below once that hook
 event actually shows up in a recording with the fields SPEC 7.2 expects.
 
-## The eight registered hook events (BR-08)
+## The ten registered hook events (BR-08)
 
 | Event | Confirmed in recordings | Released in | Notes |
 |---|---|---|---|
@@ -28,6 +29,8 @@ event actually shows up in a recording with the fields SPEC 7.2 expects.
 | `Notification` | TODO | unreleased | |
 | `Stop` | TODO | unreleased | |
 | `SessionEnd` | TODO | unreleased | |
+| `SubagentStart` | `2.1.283` | unreleased | Added for subagent chains (ADR-005 section 3); see "Subagent hooks" below. A machine paired before this row existed adds it with `agentpulse pair --hooks-only`. |
+| `SubagentStop` | `2.1.283` | unreleased | As `SubagentStart`. |
 
 "Released in" is the earliest tagged bridge version (`vX.Y.Z`) whose
 release notes confirmed that row against a real recording. It stays
@@ -88,11 +91,12 @@ a parent-mapping step for `SubagentStart`/`SubagentStop` (ADR-005
 section 3's "Exception" branch does not apply); P5-18 can proceed on
 that basis.
 
-`SubagentStart` and `SubagentStop` are intentionally **not** added to the
-eight-event table above, to `internal/doctor/compat.json`, or to
-`internal/claudehooks.BR08Events` by this card — that is card P5-21
-(ADR-005 section 3). The minimum version to record for both, once added,
-is the one recorded here: Claude Code `2.1.283`.
+Both are registered (BR-08, card P5-21) with `2.1.283`, the version
+recorded here, as their minimum in the table above and in
+`internal/doctor/compat.json`: the oldest version known to send them,
+not a guess at when they were introduced. On an older Claude Code,
+`agentpulse doctor` warns that subagents will show without a precise
+start and stop.
 
 ## How to update this file
 
@@ -109,7 +113,7 @@ at the top if you're using a newer Claude Code than what's listed.
 check 3 (BR-15, SPEC 7.4, NFR-11) actually reads at run time — `go:embed`
 cannot reach this file from `internal/doctor`'s own package directory, so
 the table is duplicated there rather than embedded from here. It lists
-the same eight events, in the same order, each with the earliest Claude
+the same ten events, in the same order, each with the earliest Claude
 Code version known to send it (`min_version`), plus the `baseline_version`
 this file's "Status" section names.
 
