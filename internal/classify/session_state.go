@@ -38,6 +38,22 @@ type SessionState struct {
 	// session. See chain for the cap.
 	Subagents map[string]*ChainState `json:"subagents,omitempty"`
 
+	// Overflow is the one ChainState every subagent beyond the cap
+	// shares (see chain). It is never the main chain's, so a crowd of
+	// subagents can neither consume the main chain's pending markers nor
+	// suppress its reads.
+	Overflow *ChainState `json:"subagent_overflow,omitempty"`
+
+	// LastPermissionRequestAt is set whenever a PermissionRequest hook is
+	// classified, in any chain, and is the specific dedup key SPEC 7.2
+	// names: a Notification permission_prompt within 5 seconds of this
+	// timestamp is treated as the same underlying prompt and produces no
+	// event. It is per session rather than per chain because a
+	// Notification may not carry the agent_id of the subagent whose
+	// PermissionRequest it repeats (COMPATIBILITY.md), so it cannot be
+	// matched to a chain.
+	LastPermissionRequestAt time.Time `json:"last_permission_request_at,omitempty"`
+
 	// Project is the main chain's project from its last emitted event.
 	// A subagent's events report it rather than re-deriving one from the
 	// subagent's own cwd, so a subagent that changes directory does not
@@ -78,12 +94,6 @@ type ChainState struct {
 	// consults it beyond keeping it current.
 	LastNeedsInputAt time.Time `json:"last_needs_input_at,omitempty"`
 
-	// LastPermissionRequestAt is set only when a PermissionRequest hook is
-	// classified, and is the specific dedup key SPEC 7.2 names: a
-	// Notification permission_prompt within 5 seconds of this timestamp is
-	// treated as the same underlying prompt and produces no event.
-	LastPermissionRequestAt time.Time `json:"last_permission_request_at,omitempty"`
-
 	// PRPending and CommitPending mark that the immediately preceding
 	// PreToolUse was a `gh pr create` / `git commit` Bash call, for the
 	// following PostToolUse to consult (SPEC 7.2). Reset at the start of
@@ -115,8 +125,8 @@ const idleChainAge = time.Hour
 // chain returns the ChainState for subagent id, or the main chain's for
 // "". A new subagent gets its own entry while there is room; at the cap,
 // entries idle for idleChainAge are evicted first, and if the map is
-// still full the subagent shares the main chain's state (its events
-// still carry their `subagent` envelope).
+// still full the subagent shares Overflow with every other subagent that
+// found no room (its events still carry their `subagent` envelope).
 func (s *SessionState) chain(id string, now time.Time) *ChainState {
 	if id == "" {
 		return &s.ChainState
@@ -132,7 +142,10 @@ func (s *SessionState) chain(id string, now time.Time) *ChainState {
 		}
 	}
 	if len(s.Subagents) >= maxSubagentChains {
-		return &s.ChainState
+		if s.Overflow == nil {
+			s.Overflow = &ChainState{}
+		}
+		return s.Overflow
 	}
 	if s.Subagents == nil {
 		s.Subagents = map[string]*ChainState{}

@@ -346,15 +346,15 @@ func parsePRNumber(output string) (int, bool) {
 // --- PermissionRequest, Notification: needs_input(permission) ---
 
 func classifyPermissionRequest(input HookInput, state *SessionState, c *ChainState, now time.Time) *Event {
-	c.LastPermissionRequestAt = now
+	state.LastPermissionRequestAt = now
 	return needsInputEvent(input, state, c, now, NeedsInputPermission, toolCategory(input.ToolName))
 }
 
 func classifyNotification(input HookInput, state *SessionState, c *ChainState, now time.Time) (*Event, bool) {
 	switch {
 	case strings.HasPrefix(input.Message, claudehooks.NotificationPermissionPromptPrefix):
-		if !c.LastPermissionRequestAt.IsZero() && now.Sub(c.LastPermissionRequestAt) <= permissionDedupWindow {
-			return nil, false // deduplicated against a recent PermissionRequest (SPEC 7.2)
+		if !state.LastPermissionRequestAt.IsZero() && now.Sub(state.LastPermissionRequestAt) <= permissionDedupWindow {
+			return nil, false // deduplicated against a recent PermissionRequest in any chain (SPEC 7.2)
 		}
 		// tool_category is omitted: a Notification carries no tool name to
 		// categorize (SPEC 7.2 only assigns tool_category from the

@@ -206,17 +206,29 @@ func TestInputResolvedIsPerChain(t *testing.T) {
 	if !ok || ev.Type != TypeInputResolved || ev.Subagent == nil || ev.Subagent.ID != SubagentID("agent-a") {
 		t.Errorf("A's PostToolUse = %+v, %v; want input_resolved for A", ev, ok)
 	}
+}
 
-	// A's PermissionRequest does not deduplicate the main chain's
-	// permission_prompt Notification a second later.
+// A permission_prompt Notification may arrive without the agent_id of the
+// subagent whose PermissionRequest it repeats (COMPATIBILITY.md), so the
+// dedup window spans every chain of the session.
+func TestPermissionPromptDedupSpansChains(t *testing.T) {
+	note := func(at time.Time) HookInput {
+		in := baseInput("sess_sub", HookNotification)
+		in.Message = "Claude needs your permission to use Bash"
+		in.Now = at
+		return in
+	}
+	state := NewSessionState()
 	perm := subInput(HookPermissionRequest, "agent-a", "planner")
 	perm.ToolName = "Bash"
-	Classify(perm, state)
-	note := baseInput("sess_sub", HookNotification)
-	note.Message = "Claude needs your permission to use Bash"
-	note.Now = fixedNow.Add(time.Second)
-	if ev, ok := Classify(note, state); !ok || ev.Type != TypeNeedsInput || ev.Subagent != nil {
-		t.Errorf("main-chain permission prompt = %+v, %v; want needs_input on the main chain", ev, ok)
+	if ev, ok := Classify(perm, state); !ok || ev.Type != TypeNeedsInput || ev.Subagent == nil {
+		t.Fatalf("A's PermissionRequest = %+v, %v; want needs_input for A", ev, ok)
+	}
+	if ev, ok := Classify(note(fixedNow.Add(time.Second)), state); ok {
+		t.Errorf("permission prompt without agent_id a second after A's PermissionRequest emitted %+v, want nothing", ev)
+	}
+	if ev, ok := Classify(note(fixedNow.Add(permissionDedupWindow+time.Second)), state); !ok || ev.Type != TypeNeedsInput {
+		t.Errorf("permission prompt after the dedup window = %+v, %v; want needs_input", ev, ok)
 	}
 }
 
@@ -256,5 +268,41 @@ func TestSubagentChainsAreCapped(t *testing.T) {
 	}
 	if _, ok := state.Subagents[SubagentID("late")]; !ok || len(state.Subagents) != 1 {
 		t.Errorf("idle chains not evicted: %d chains", len(state.Subagents))
+	}
+}
+
+// A subagent beyond the cap must not share the main chain's scratch: its
+// PreToolUse would clear the main chain's pending verification and its
+// read would suppress the main chain's next read.
+func TestOverflowSubagentDoesNotTouchTheMainChain(t *testing.T) {
+	state := NewSessionState()
+	for i := 0; i < maxSubagentChains; i++ {
+		Classify(readInput(HookPreToolUse, string(rune('A'+i)), fixedNow), state)
+	}
+
+	goTest := baseInput("sess_sub", HookPreToolUse)
+	goTest.ToolName = "Bash"
+	goTest.ToolInput = toolInputJSON(t, map[string]any{"command": "go test ./..."})
+	goTest.Now = fixedNow.Add(time.Second)
+	if ev, ok := Classify(goTest, state); !ok || ev.Type != TypeVerificationStarted {
+		t.Fatalf("main chain's go test = %+v, %v; want verification_started", ev, ok)
+	}
+
+	if ev, ok := Classify(readInput(HookPreToolUse, "overflow", fixedNow.Add(2*time.Second)), state); !ok || ev.Subagent == nil {
+		t.Fatalf("overflow subagent's read = %+v, %v; want activity with its envelope", ev, ok)
+	}
+	if _, ok := state.Subagents[SubagentID("overflow")]; ok {
+		t.Fatal("setup: overflow subagent got its own chain, want it past the cap")
+	}
+
+	done := baseInput("sess_sub", HookPostToolUse)
+	done.ToolName = "Bash"
+	done.ToolResponse = toolResponseJSON(t, "ok  \texample.com/pkg\t0.01s", "")
+	done.Now = fixedNow.Add(3 * time.Second)
+	if ev, ok := Classify(done, state); !ok || ev.Type != TypeVerificationFinished {
+		t.Errorf("main chain's PostToolUse = %+v, %v; want verification_finished", ev, ok)
+	}
+	if ev, ok := Classify(readInput(HookPreToolUse, "", fixedNow.Add(4*time.Second)), state); !ok || ev.Subagent != nil {
+		t.Errorf("main chain's read = %+v, %v; want activity, not suppressed by the overflow subagent's", ev, ok)
 	}
 }
