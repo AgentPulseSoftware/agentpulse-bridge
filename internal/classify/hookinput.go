@@ -3,6 +3,8 @@ package classify
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/agentpulsesoftware/agentpulse-bridge/internal/claudehooks"
 )
 
 // HookInput is Classify's first argument. Its top half is parsed straight
@@ -52,6 +54,10 @@ type HookInput struct {
 	// AgentID and AgentType are ignored and classification is exactly
 	// what it was before subagents were recognized.
 	SubagentsOn bool `json:"-"`
+
+	// subagent is set by Classify from AgentID and AgentType, once per
+	// hook call, for every event it builds.
+	subagent *Subagent
 }
 
 // ParseHookInput decodes raw as one Claude Code hook JSON document.
@@ -106,10 +112,9 @@ const (
 
 	// SubagentStart and SubagentStop become subagent_start and
 	// subagent_stop when SubagentsOn is true, and nothing otherwise
-	// (ADR-005 section 1). They are not yet registered by "agentpulse
-	// pair"; that is card P5-21.
-	HookSubagentStart = "SubagentStart"
-	HookSubagentStop  = "SubagentStop"
+	// (ADR-005 section 1). "agentpulse pair" registers both (BR-08).
+	HookSubagentStart = claudehooks.SubagentStart
+	HookSubagentStop  = claudehooks.SubagentStop
 
 	// Not registered (BR-08). Named here only so Classify can recognize
 	// and safely ignore it if an operator's own hook config ever sends

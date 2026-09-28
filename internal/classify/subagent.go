@@ -79,17 +79,3 @@ func subagentFor(input HookInput) *Subagent {
 func (in HookInput) InSubagent() bool {
 	return in.SubagentsOn && in.AgentID != ""
 }
-
-// excludedInSubagent reports whether a hook would produce one of the
-// event types ADR-005 section 1 forbids the `subagent` field on
-// (session_start, prompt_submitted, stop, session_end). Such a hook
-// inside a subagent emits nothing. project_seen, the fifth, is produced
-// by "agentpulse hook" itself and is dropped there.
-func excludedInSubagent(hookEventName string) bool {
-	switch hookEventName {
-	case HookSessionStart, HookUserPromptSubmit, HookStop, HookSessionEnd:
-		return true
-	default:
-		return false
-	}
-}
