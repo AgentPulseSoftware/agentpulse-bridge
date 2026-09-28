@@ -55,6 +55,12 @@ type State struct {
 	RequiredBridgeVersion string     `json:"required_bridge_version,omitempty"`
 	LastEvent             *LastEvent `json:"last_event,omitempty"`
 	LastFlush             *LastFlush `json:"last_flush,omitempty"`
+	// SubagentsOffUntil (RFC 3339 UTC) is ADR-005 section 8's fallback:
+	// written by "agentpulse flush" when the relay rejected an event
+	// carrying the `subagent` field, and read by "agentpulse hook", which
+	// classifies subagent hooks exactly as before subagents were
+	// recognized until this time has passed.
+	SubagentsOffUntil string `json:"subagents_off_until,omitempty"`
 }
 
 // Load reads state.json at path, tolerantly: a missing or unparseable
