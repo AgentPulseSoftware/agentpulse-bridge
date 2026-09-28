@@ -26,6 +26,12 @@ const batchOverheadBytes = 48
 // "events.<N>: message".
 var eventIndexPattern = regexp.MustCompile(`^events\.(\d+)[.:]`)
 
+// unexpectedFieldPattern matches the relay's whole detail for an event
+// carrying one field it does not know, "events.<N>: unexpected field
+// <name>", and captures the name. Only a single lower-case key is
+// accepted, so what is captured is a schema field name, never other text.
+var unexpectedFieldPattern = regexp.MustCompile(`^events\.\d+: unexpected field ([a-z_]{1,64})$`)
+
 // nextChunk builds one chunk from the front of events: as many events, in
 // order, as fit within MaxEventsPerChunk and MaxChunkBytes, appending
 // events until either limit would next be crossed (the byte bound binds
@@ -83,4 +89,15 @@ func parseEventIndex(detail string) (index int, ok bool) {
 		return 0, false
 	}
 	return n, true
+}
+
+// parseUnexpectedField returns the field name a 400's detail says the
+// named event carried but the relay does not know, or "" when the detail
+// says anything else.
+func parseUnexpectedField(detail string) string {
+	m := unexpectedFieldPattern.FindStringSubmatch(detail)
+	if m == nil {
+		return ""
+	}
+	return m[1]
 }

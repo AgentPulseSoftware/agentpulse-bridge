@@ -143,7 +143,7 @@ func (c *Client) PostEvents(ctx context.Context, events [][]byte, watchListVersi
 			var se *StatusError
 			if errors.As(err, &se) && se.Kind == KindBadRequest && se.eventIndex >= 0 && se.eventIndex < len(chunk) {
 				badIdx := offset + se.eventIndex
-				result.Dropped = append(result.Dropped, DroppedEvent{Index: badIdx, Type: bestEffortType(events[badIdx])})
+				result.Dropped = append(result.Dropped, DroppedEvent{Index: badIdx, Type: bestEffortType(events[badIdx]), UnexpectedField: se.unexpectedField})
 			}
 			return result, err
 		}
@@ -224,6 +224,7 @@ func (c *Client) postChunk(ctx context.Context, chunk [][]byte, watchListVersion
 		se := &StatusError{Kind: KindBadRequest, StatusCode: resp.StatusCode, RequiredBridgeVersion: eb.RequiredBridgeVersion, eventIndex: -1}
 		if idx, ok := parseEventIndex(eb.Detail); ok {
 			se.eventIndex = idx
+			se.unexpectedField = parseUnexpectedField(eb.Detail)
 		}
 		return chunkResult{}, se
 	case http.StatusUnauthorized:

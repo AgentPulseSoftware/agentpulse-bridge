@@ -490,6 +490,27 @@ func TestParseEventIndex(t *testing.T) {
 	}
 }
 
+func TestParseUnexpectedField(t *testing.T) {
+	tests := []struct {
+		detail string
+		want   string
+	}{
+		{"events.2: unexpected field subagent", "subagent"},
+		{"events.0: unexpected field task_label", "task_label"},
+		{"events.2: unexpected field subagent, extra", ""},
+		{"events.2: unexpected field Subagent", ""},
+		{"events.2.subagent: unexpected field subagent", ""},
+		{"events.2: Invalid enum value", ""},
+		{"(root): unexpected field subagent", ""},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		if got := parseUnexpectedField(tt.detail); got != tt.want {
+			t.Errorf("parseUnexpectedField(%q) = %q, want %q", tt.detail, got, tt.want)
+		}
+	}
+}
+
 func TestParseRetryAfter(t *testing.T) {
 	tests := []struct {
 		header string

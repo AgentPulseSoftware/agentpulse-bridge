@@ -41,12 +41,14 @@ func subagentsPaused(s state.State, now time.Time) bool {
 }
 
 // splitSubagentRejections separates, among the events a relay 400 named
-// as invalid, those that carry `subagent`. They are not dropped: the
-// caller strips the field and sends them once more (ADR-005 section 8).
-// The rest are returned to be dropped as ERR-03 requires.
+// as invalid, those it rejected for carrying the `subagent` field (the
+// relay's "unexpected field subagent"). They are not dropped: the caller
+// strips the field and sends them once more (ADR-005 section 8). The
+// rest, including a marked event rejected for any other reason, are
+// returned to be dropped as ERR-03 requires.
 func splitSubagentRejections(cur [][]byte, dropped []relay.DroppedEvent) (rest []relay.DroppedEvent, rejected int) {
 	for _, d := range dropped {
-		if d.Index >= 0 && d.Index < len(cur) && bytes.Contains(cur[d.Index], subagentKey) {
+		if d.UnexpectedField == "subagent" && d.Index >= 0 && d.Index < len(cur) && bytes.Contains(cur[d.Index], subagentKey) {
 			rejected++
 			continue
 		}
