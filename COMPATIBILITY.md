@@ -35,6 +35,65 @@ release notes confirmed that row against a real recording. It stays
 PR (the one that bumps the tag) is the same PR that should change this
 column, so a release and its compatibility claim ship together.
 
+## Subagent hooks
+
+Recorded 2026-09-27 against Claude Code `2.1.283`, from one scripted
+session (card P5-14, ADR-005 "Open question, settled by a recording").
+The session ran non-interactively (`claude -p` with a pre-approved tool
+list, so it could complete without a human present to approve a
+permission prompt), so no `PermissionRequest` hook fired in this
+recording. That leaves whether `PermissionRequest` or `Notification`
+carry `agent_id`/`agent_type` unconfirmed by an actual recording; the
+`subagent-permission` fixture below stays entirely synthetic rather than
+recorded-shape-confirmed for those two hook names.
+
+Findings (values are never recorded, only field names and yes/no facts):
+
+- (a) Every hook fired for, or inside, a subagent carried the **parent**
+  session's `session_id` — with no exception across 19 recorded hook
+  calls, two subagents, and both hooks named `SubagentStart`. Subagents
+  do not get their own `session_id`.
+- (b) `agent_id` and `agent_type` appeared on `SubagentStart`,
+  `SubagentStop`, and on `PreToolUse`/`PostToolUse` when that hook fired
+  for the subagent's own tool call. They did **not** appear on the main
+  session's own `PreToolUse`/`PostToolUse` around the tool call that
+  launches a subagent (recorded `tool_name` for that launch: `Agent`).
+- (c) The `agent_id` on a subagent's `SubagentStart`, on every
+  `PreToolUse`/`PostToolUse` pair fired for that subagent's own tool
+  calls, and on that subagent's `SubagentStop`, was identical throughout
+  its lifecycle — confirmed for both subagents recorded.
+- (d) Key names seen:
+  - `SubagentStart`: `agent_id`, `agent_type`, `cwd`, `hook_event_name`,
+    `prompt_id`, `scratchpad_dir`, `session_id`, `transcript_path`.
+  - `SubagentStop`: `agent_id`, `agent_transcript_path`, `agent_type`,
+    `background_tasks`, `cwd`, `effort`, `hook_event_name`,
+    `last_assistant_message`, `permission_mode`, `prompt_id`,
+    `scratchpad_dir`, `session_crons`, `session_id`, `stop_hook_active`,
+    `transcript_path` (the same shape as `Stop`, plus the three
+    subagent-identity fields).
+- (e) `SessionStart`, `UserPromptSubmit`, and `Stop` never carried
+  `agent_id` in this recording (checked every instance: one
+  `SessionStart`, three `UserPromptSubmit`, two `Stop`).
+- (f) The two subagents' own tool-call hooks did **not** interleave at
+  the tool level: one subagent's `PreToolUse`/`PostToolUse` pair for its
+  own tool call completed in full before the other's began, even though
+  both subagents were launched together and both `SubagentStart` hooks
+  arrived consecutively, before either subagent's own tool hook fired.
+  Their two `SubagentStop` hooks likewise arrived as a pair, in the
+  reverse of start order.
+
+**Consequence for ADR-005:** finding (a) settles the ADR's open question
+in favor of its default-assumption branch — the bridge does **not** need
+a parent-mapping step for `SubagentStart`/`SubagentStop` (ADR-005
+section 3's "Exception" branch does not apply); P5-18 can proceed on
+that basis.
+
+`SubagentStart` and `SubagentStop` are intentionally **not** added to the
+eight-event table above, to `internal/doctor/compat.json`, or to
+`internal/claudehooks.BR08Events` by this card — that is card P5-21
+(ADR-005 section 3). The minimum version to record for both, once added,
+is the one recorded here: Claude Code `2.1.283`.
+
 ## How to update this file
 
 When scenarios are captured from real sessions, update each row's

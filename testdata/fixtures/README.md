@@ -100,7 +100,30 @@ The full list to record (SPEC 18):
 - `gh pr create`
 - One session per SPEC 7.5 runner: pytest, Jest, Vitest, Mocha, an `npm`/
   `pnpm`/`yarn`/`bun` test script, `go test`, Cargo, Swift, and xcodebuild
+- Subagent hooks (D69, ADR-005, card P5-14): `subagent-single`,
+  `subagent-permission`, `subagent-parallel` — see below.
 
 Each scenario gets its own directory. A runner-specific scenario should be
 named after the runner, e.g. `verify-pytest`, `verify-go-test`, so the
 classifier's table-driven tests can find them by name.
+
+## Subagent scenarios (D69, ADR-005)
+
+`subagent-single`, `subagent-permission`, and `subagent-parallel` are
+hand-written in the shape a real Claude Code subagent recording showed
+(`COMPATIBILITY.md`'s "Subagent hooks" section, card P5-14), with invented
+`session_id`, `agent_id`, and `agent_type` values. `subagent-permission`
+in particular is synthetic in the strict sense throughout: the real
+recording never exercised a `PermissionRequest` inside a subagent (it was
+a non-interactive run with pre-approved tools), so its shape is inferred
+from the general `PermissionRequest` shape already recorded elsewhere in
+this corpus, not confirmed for the subagent case.
+
+Their `expected.json` is **today's** classifier output — the "Show
+subagents off" baseline (D69's setting defaults off): the classifier does
+not parse `agent_id`/`agent_type` at all today, and explicitly ignores the
+`SubagentStart`/`SubagentStop` hook names, so a subagent's activity folds
+into its parent session exactly as if the tool calls had happened at the
+top level. Card P5-18 (chains, "Show subagents" on) adds each scenario's
+"on" expectation — the same session's events, but split into per-chain
+rows — alongside this baseline, not in place of it.
