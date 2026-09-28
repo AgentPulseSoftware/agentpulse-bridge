@@ -6,6 +6,15 @@
     { "type": "needs_input", "payload": { "kind": "permission", "tool_category": "command" } },
     { "type": "stop", "payload": {} }
   ],
+  "subagent_events": [
+    { "type": "session_start", "payload": { "agent": "claude-code" } },
+    { "type": "prompt_submitted", "payload": {} },
+    { "type": "subagent_start", "payload": {}, "subagent": { "id": "86fd9c1d3cf536be", "type": "docs-writer" } },
+    { "type": "activity", "payload": { "category": "other" }, "subagent": { "id": "86fd9c1d3cf536be", "type": "docs-writer" } },
+    { "type": "needs_input", "payload": { "kind": "permission", "tool_category": "command" }, "subagent": { "id": "86fd9c1d3cf536be", "type": "docs-writer" } },
+    { "type": "subagent_stop", "payload": {}, "subagent": { "id": "86fd9c1d3cf536be", "type": "docs-writer" } },
+    { "type": "stop", "payload": {} }
+  ],
   "final_state": "done",
   "recap_ok": false,
   "synthetic": true

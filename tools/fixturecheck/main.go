@@ -6,6 +6,13 @@
 // per scenario — and compares the resulting spool to that scenario's
 // expected.json.
 //
+// Every scenario is replayed twice (ADR-005, card P5-18): once as the
+// bridge normally runs, with subagent hooks classified as their own chains
+// (compared to "subagent_events" when the scenario has them, otherwise to
+// "events"), and once with subagent classification paused the way the
+// flush fallback pauses it (compared to "events", the pre-subagent
+// baseline, with no event allowed to carry `subagent`).
+//
 // This is a development tool, not part of the shipped bridge (BR-20's
 // GoReleaser config builds only ./cmd/agentpulse): it lives under tools/
 // rather than cmd/ to keep that distinction visible.
@@ -23,15 +30,20 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 // expectedEvent is one entry in expected.json's "events" array (see
 // testdata/fixtures/README.md). Payload is matched as a subset: a
 // field present here must equal the actual event's field; a field the
 // actual event has but expected.json omits is not checked.
+//
+// Subagent, unlike Payload, is strict: an expected event without it
+// requires the actual event to have none.
 type expectedEvent struct {
-	Type    string         `json:"type"`
-	Payload map[string]any `json:"payload"`
+	Type     string         `json:"type"`
+	Payload  map[string]any `json:"payload"`
+	Subagent map[string]any `json:"subagent"`
 }
 
 // expected is one scenario's hand-authored answer key. Of its four fields,
@@ -44,10 +56,11 @@ type expectedEvent struct {
 // computes. Synthetic just distinguishes a hand-authored scenario from a
 // recorded one, for later bookkeeping.
 type expected struct {
-	Events     []expectedEvent `json:"events"`
-	FinalState string          `json:"final_state"`
-	RecapOK    bool            `json:"recap_ok"`
-	Synthetic  bool            `json:"synthetic"`
+	Events         []expectedEvent `json:"events"`
+	SubagentEvents []expectedEvent `json:"subagent_events"`
+	FinalState     string          `json:"final_state"`
+	RecapOK        bool            `json:"recap_ok"`
+	Synthetic      bool            `json:"synthetic"`
 }
 
 // actualEvent is the shape this tool needs from a spooled event line: just
@@ -56,8 +69,9 @@ type expected struct {
 // switch per event type here for no benefit — a generic map compares just
 // as well for this purpose).
 type actualEvent struct {
-	Type    string         `json:"type"`
-	Payload map[string]any `json:"payload"`
+	Type     string         `json:"type"`
+	Payload  map[string]any `json:"payload"`
+	Subagent map[string]any `json:"subagent"`
 }
 
 var hookFilePattern = regexp.MustCompile(`^\d+-[A-Za-z]+\.json$`)
@@ -126,8 +140,8 @@ func listScenarios(fixturesDir string) ([]string, error) {
 	return names, nil
 }
 
-// runScenario replays one scenario's hook documents through binPath and
-// compares the resulting spool against its expected.json.
+// runScenario replays one scenario's hook documents through binPath, in
+// both modes, and compares each resulting spool against its expected.json.
 func runScenario(binPath, dir string) error {
 	exp, err := loadExpected(filepath.Join(dir, "expected.json"))
 	if err != nil {
@@ -142,16 +156,66 @@ func runScenario(binPath, dir string) error {
 		return fmt.Errorf("no NNN-<hook>.json files found")
 	}
 
+	off, err := replay(binPath, files, true)
+	if err != nil {
+		return fmt.Errorf("subagents paused: %w", err)
+	}
+	if err := compareEvents(exp.Events, off); err != nil {
+		return fmt.Errorf("subagents paused: %w", err)
+	}
+	if exp.FinalState != "" {
+		if got := computeFinalState(off); got != exp.FinalState {
+			return fmt.Errorf("subagents paused: final_state = %q, want %q", got, exp.FinalState)
+		}
+	}
+
+	on, err := replay(binPath, files, false)
+	if err != nil {
+		return err
+	}
+	want := exp.Events
+	if exp.SubagentEvents != nil {
+		want = exp.SubagentEvents
+	}
+	if err := compareEvents(want, on); err != nil {
+		return err
+	}
+	if exp.FinalState != "" {
+		// The session's own state follows its main chain only (D71).
+		var mainChain []actualEvent
+		for _, ev := range on {
+			if ev.Subagent == nil {
+				mainChain = append(mainChain, ev)
+			}
+		}
+		if got := computeFinalState(mainChain); got != exp.FinalState {
+			return fmt.Errorf("final_state = %q, want %q", got, exp.FinalState)
+		}
+	}
+	return nil
+}
+
+// replay feeds files to "binPath hook" in order against a fresh state and
+// config directory and returns the spooled events. With pauseSubagents it
+// first writes the state.json the flush fallback writes (ADR-005 section
+// 8), so the hook classifies subagent hooks as it did before subagents
+// were recognized.
+func replay(binPath string, files []string, pauseSubagents bool) ([]actualEvent, error) {
 	stateDir, err := os.MkdirTemp("", "agentpulse-fixture-state-*")
 	if err != nil {
-		return fmt.Errorf("creating temp state dir: %w", err)
+		return nil, fmt.Errorf("creating temp state dir: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(stateDir) }()
 	configDir, err := os.MkdirTemp("", "agentpulse-fixture-config-*")
 	if err != nil {
-		return fmt.Errorf("creating temp config dir: %w", err)
+		return nil, fmt.Errorf("creating temp config dir: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(configDir) }()
+	if pauseSubagents {
+		if err := writePausedState(filepath.Join(stateDir, "agentpulse")); err != nil {
+			return nil, err
+		}
+	}
 
 	env := append(os.Environ(),
 		"XDG_STATE_HOME="+stateDir,
@@ -167,7 +231,7 @@ func runScenario(binPath, dir string) error {
 	for _, f := range files {
 		raw, err := os.ReadFile(f) //nolint:gosec // fixture path from the repo's own testdata
 		if err != nil {
-			return fmt.Errorf("reading %s: %w", f, err)
+			return nil, fmt.Errorf("reading %s: %w", f, err)
 		}
 		cmd := exec.Command(binPath, "hook") //nolint:gosec // binPath is our own just-built binary
 		cmd.Env = env
@@ -176,29 +240,28 @@ func runScenario(binPath, dir string) error {
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
 		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("running %s hook on %s: %w (stderr: %s)", binPath, filepath.Base(f), err, stderr.String())
+			return nil, fmt.Errorf("running %s hook on %s: %w (stderr: %s)", binPath, filepath.Base(f), err, stderr.String())
 		}
 		if stdout.Len() != 0 || stderr.Len() != 0 {
-			return fmt.Errorf("%s printed output (violates BR-02/BR-04): stdout=%q stderr=%q", filepath.Base(f), stdout.String(), stderr.String())
+			return nil, fmt.Errorf("%s printed output (violates BR-02/BR-04): stdout=%q stderr=%q", filepath.Base(f), stdout.String(), stderr.String())
 		}
 	}
 
-	actual, err := readSpool(filepath.Join(stateDir, "agentpulse", "spool.ndjson"))
+	return readSpool(filepath.Join(stateDir, "agentpulse", "spool.ndjson"))
+}
+
+// writePausedState writes a state.json whose subagents_off_until is an
+// hour from now, far longer than any replay takes.
+func writePausedState(dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("creating %s: %w", dir, err)
+	}
+	until := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	doc, err := json.Marshal(map[string]string{"subagents_off_until": until})
 	if err != nil {
 		return err
 	}
-
-	if err := compareEvents(exp.Events, actual); err != nil {
-		return err
-	}
-
-	if exp.FinalState != "" {
-		if got := computeFinalState(actual); got != exp.FinalState {
-			return fmt.Errorf("final_state = %q, want %q", got, exp.FinalState)
-		}
-	}
-
-	return nil
+	return os.WriteFile(filepath.Join(dir, "state.json"), doc, 0o600)
 }
 
 func loadExpected(path string) (expected, error) {
@@ -276,6 +339,9 @@ func compareEvents(want []expectedEvent, actual []actualEvent) error {
 	for i := range want {
 		if actual[i].Type != want[i].Type {
 			return fmt.Errorf("event %d: type = %q, want %q", i, actual[i].Type, want[i].Type)
+		}
+		if !jsonEqual(actual[i].Subagent, want[i].Subagent) {
+			return fmt.Errorf("event %d (%s): subagent = %v, want %v", i, want[i].Type, actual[i].Subagent, want[i].Subagent)
 		}
 		for key, wantVal := range want[i].Payload {
 			gotVal, ok := actual[i].Payload[key]

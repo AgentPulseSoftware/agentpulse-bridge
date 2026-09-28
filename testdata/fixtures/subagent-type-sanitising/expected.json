@@ -1,0 +1,24 @@
+{
+  "events": [
+    { "type": "session_start", "payload": { "agent": "claude-code" } },
+    { "type": "prompt_submitted", "payload": {} },
+    { "type": "activity", "payload": { "category": "read" } },
+    { "type": "stop", "payload": {} }
+  ],
+  "subagent_events": [
+    { "type": "session_start", "payload": { "agent": "claude-code" } },
+    { "type": "prompt_submitted", "payload": {} },
+    { "type": "subagent_start", "payload": {}, "subagent": { "id": "a75f387d7d275d2d", "type": "subagent" } },
+    { "type": "subagent_start", "payload": {}, "subagent": { "id": "3842d435df51ca3a", "type": "subagent" } },
+    { "type": "subagent_start", "payload": {}, "subagent": { "id": "8596c052ec853741", "type": "release-notes-writer-for-the-mobile-apps" } },
+    { "type": "subagent_start", "payload": {}, "subagent": { "id": "b4fb67a85fe64244", "type": "subagent" } },
+    { "type": "subagent_start", "payload": {}, "subagent": { "id": "a2326b909f3ae688", "type": "subagent" } },
+    { "type": "subagent_start", "payload": {}, "subagent": { "id": "a66dd8abeb5a4dcb", "type": "subagent" } },
+    { "type": "subagent_start", "payload": {}, "subagent": { "id": "8450884182965582", "type": "my-plugin:db-agent" } },
+    { "type": "activity", "payload": { "category": "read" }, "subagent": { "id": "a75f387d7d275d2d", "type": "subagent" } },
+    { "type": "stop", "payload": {} }
+  ],
+  "final_state": "done",
+  "recap_ok": false,
+  "synthetic": true
+}
