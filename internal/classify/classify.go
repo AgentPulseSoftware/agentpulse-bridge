@@ -39,20 +39,23 @@ func Classify(input HookInput, state *SessionState) (event *Event, ok bool) {
 		now = time.Now().UTC()
 	}
 
+	// The envelope is computed once here; buildEvent reads it back.
+	input.subagent = subagentFor(input)
 	chainID := ""
-	if input.InSubagent() {
-		if excludedInSubagent(input.HookEventName) {
-			return nil, false
-		}
-		chainID = SubagentID(input.AgentID)
+	if input.subagent != nil {
+		chainID = input.subagent.ID
 	}
-	mainChain := &state.ChainState
 
 	switch input.HookEventName {
-	case HookSessionStart:
-		return classifySessionStart(input, state, mainChain, now), true
-	case HookUserPromptSubmit:
-		return classifyUserPromptSubmit(input, state, mainChain, now), true
+	case HookSessionStart, HookUserPromptSubmit, HookStop, HookSessionEnd:
+		if chainID != "" {
+			// These produce session_start, prompt_submitted, stop and
+			// session_end, which ADR-005 section 1 forbids the `subagent`
+			// field on, so inside a subagent they emit nothing.
+			// project_seen, the fifth, is dropped by "agentpulse hook".
+			return nil, false
+		}
+		return classifyMainChainOnly(input, state, now), true
 	case HookPreToolUse:
 		return classifyPreToolUse(input, state, state.chain(chainID, now), now)
 	case HookPostToolUse:
@@ -61,10 +64,6 @@ func Classify(input HookInput, state *SessionState) (event *Event, ok bool) {
 		return classifyPermissionRequest(input, state, state.chain(chainID, now), now), true
 	case HookNotification:
 		return classifyNotification(input, state, state.chain(chainID, now), now)
-	case HookStop:
-		return classifyStop(input, state, mainChain, now), true
-	case HookSessionEnd:
-		return classifySessionEnd(input, state, mainChain, now), true
 	case HookSubagentStart:
 		if chainID == "" {
 			return nil, false // SubagentsOn is false, or no agent_id to name the chain by
@@ -87,6 +86,22 @@ func Classify(input HookInput, state *SessionState) (event *Event, ok bool) {
 	}
 }
 
+// classifyMainChainOnly classifies the four hooks that only ever
+// describe the main chain.
+func classifyMainChainOnly(input HookInput, state *SessionState, now time.Time) *Event {
+	c := &state.ChainState
+	switch input.HookEventName {
+	case HookSessionStart:
+		return classifySessionStart(input, state, c, now)
+	case HookUserPromptSubmit:
+		return classifyUserPromptSubmit(input, state, c, now)
+	case HookStop:
+		return classifyStop(input, state, c, now)
+	default: // HookSessionEnd
+		return classifySessionEnd(input, state, c, now)
+	}
+}
+
 // --- envelope construction ---
 
 // buildEvent fills the SPEC 10.1 envelope common to every event type and
@@ -104,7 +119,7 @@ func buildEvent(input HookInput, state *SessionState, c *ChainState, now time.Ti
 	if bridgeID == "" {
 		bridgeID = unpairedBridgeID
 	}
-	sub := subagentFor(input)
+	sub := input.subagent
 	var project Project
 	if sub != nil && state.Project != nil {
 		project = *state.Project
@@ -215,13 +230,21 @@ func classifyPreToolUse(input HookInput, state *SessionState, c *ChainState, now
 	c.PendingNeedsInput = nil
 	c.PRPending = false
 	c.CommitPending = false
+	// An overflow chain is shared by every subagent past the cap, so a
+	// marker set there could be reset or consumed by a different
+	// subagent's hook. It never tracks one (see SessionState.Overflow).
+	track := !state.isOverflow(c)
 
 	switch input.ToolName {
 	case "AskUserQuestion":
-		c.PendingNeedsInput = &PendingNeedsInput{Kind: NeedsInputQuestion}
+		if track {
+			c.PendingNeedsInput = &PendingNeedsInput{Kind: NeedsInputQuestion}
+		}
 		return needsInputEvent(input, state, c, now, NeedsInputQuestion, ""), true
 	case "ExitPlanMode":
-		c.PendingNeedsInput = &PendingNeedsInput{Kind: NeedsInputPlan}
+		if track {
+			c.PendingNeedsInput = &PendingNeedsInput{Kind: NeedsInputPlan}
+		}
 		return needsInputEvent(input, state, c, now, NeedsInputPlan, ""), true
 	case "Read", "Glob", "Grep", "LS", "WebFetch", "WebSearch":
 		updateReadCounters(input, state)
@@ -230,6 +253,9 @@ func classifyPreToolUse(input HookInput, state *SessionState, c *ChainState, now
 		updateEditCounters(input, state)
 		return activityEvent(input, state, c, now, CategoryEdit)
 	case "Bash":
+		if !track {
+			return activityEvent(input, state, c, now, CategoryOther)
+		}
 		return classifyPreToolUseBash(input, state, c, now)
 	default:
 		return activityEvent(input, state, c, now, CategoryOther)
@@ -300,6 +326,9 @@ func updateEditCounters(input HookInput, state *SessionState) {
 // --- PostToolUse ---
 
 func classifyPostToolUse(input HookInput, state *SessionState, c *ChainState, now time.Time) (*Event, bool) {
+	if state.isOverflow(c) {
+		return nil, false // no markers are tracked there, and a stale one is not trusted
+	}
 	if pv := c.PendingVerification; pv != nil {
 		c.PendingVerification = nil
 		state.VerificationRuns++

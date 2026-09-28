@@ -96,13 +96,15 @@ func TestCheckBinaryOnPathNeverFails(t *testing.T) {
 }
 
 func TestCheckSettingsFile(t *testing.T) {
-	allEight := func() map[string][]string {
+	registered := func(events ...string) map[string][]string {
 		m := map[string][]string{}
-		for _, e := range []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest", "Notification", "Stop", "SessionEnd"} {
+		for _, e := range events {
 			m[e] = []string{"/opt/agentpulse hook"}
 		}
 		return m
 	}
+	originalEight := []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest", "Notification", "Stop", "SessionEnd"}
+	allTen := append(append([]string{}, originalEight...), "SubagentStart", "SubagentStop")
 
 	tests := []struct {
 		name          string
@@ -111,6 +113,7 @@ func TestCheckSettingsFile(t *testing.T) {
 		installedErr  error
 		wantVerdict   Verdict
 		wantInFinding string
+		wantRemedy    string
 	}{
 		{
 			name:          "missing",
@@ -129,8 +132,32 @@ func TestCheckSettingsFile(t *testing.T) {
 		{
 			name:         "complete",
 			settingsPath: "/home/sam/.claude/settings.json",
-			installed:    allEight(),
+			installed:    registered(allTen...),
 			wantVerdict:  PASS,
+		},
+		{
+			name:          "only the subagent hooks missing",
+			settingsPath:  "/home/sam/.claude/settings.json",
+			installed:     registered(originalEight...),
+			wantVerdict:   WARN,
+			wantInFinding: "missing the subagent hooks: SubagentStart, SubagentStop",
+			wantRemedy:    "Run `agentpulse pair --hooks-only` to add the subagent hooks (keeps your pairing).",
+		},
+		{
+			name:          "only SubagentStop missing",
+			settingsPath:  "/home/sam/.claude/settings.json",
+			installed:     registered(append(append([]string{}, originalEight...), "SubagentStart")...),
+			wantVerdict:   WARN,
+			wantInFinding: "missing the subagent hooks: SubagentStop",
+			wantRemedy:    "Run `agentpulse pair --hooks-only` to add the subagent hooks (keeps your pairing).",
+		},
+		{
+			name:          "an original hook missing as well",
+			settingsPath:  "/home/sam/.claude/settings.json",
+			installed:     registered(originalEight[1:]...),
+			wantVerdict:   FAIL,
+			wantInFinding: "missing hook registrations for: SessionStart, SubagentStart, SubagentStop",
+			wantRemedy:    "run `agentpulse pair`",
 		},
 		{
 			name:         "missing three events",
@@ -157,6 +184,9 @@ func TestCheckSettingsFile(t *testing.T) {
 			}
 			if tt.wantInFinding != "" && !strings.Contains(got.Finding, tt.wantInFinding) {
 				t.Errorf("Finding = %q, want it to contain %q", got.Finding, tt.wantInFinding)
+			}
+			if tt.wantRemedy != "" && got.Remedy != tt.wantRemedy {
+				t.Errorf("Remedy = %q, want %q", got.Remedy, tt.wantRemedy)
 			}
 		})
 	}

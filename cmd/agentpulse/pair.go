@@ -42,17 +42,24 @@ func newPairCmd() *cobra.Command {
 		relayFlag string
 		yes       bool
 		invert    bool
+		hooksOnly bool
 	)
 	cmd := &cobra.Command{
 		Use:   "pair",
 		Short: "Connect this machine to the AgentPulse app on your phone",
 		Long: "Registers this machine with the relay, prints a QR code to scan with the " +
 			"AgentPulse app, and — once your phone has scanned it — shows the exact change " +
-			"it wants to make to ~/.claude/settings.json and asks for your confirmation.",
+			"it wants to make to ~/.claude/settings.json and asks for your confirmation.\n\n" +
+			"On a machine that is already paired, --hooks-only adds any Claude Code hooks " +
+			"this version registers that are missing (after an upgrade, the subagent hooks), " +
+			"without pairing again and without contacting the relay.",
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if hooksOnly {
+				return runHooksOnly(cmd, yes)
+			}
 			// Ctrl-C (and SIGTERM) cancels the poll loop rather than
 			// killing the process mid-write: the pairing is abandoned,
 			// but nothing half-written is left behind.
@@ -73,6 +80,9 @@ func newPairCmd() *cobra.Command {
 	cmd.Flags().StringVar(&relayFlag, "relay", "", "override the relay base URL (development only)")
 	cmd.Flags().BoolVar(&yes, "yes", false, "skip the confirmation question before writing ~/.claude/settings.json")
 	cmd.Flags().BoolVar(&invert, "qr-invert", false, "draw the QR code inverted, for a scanner that will not read light-on-dark")
+	cmd.Flags().BoolVar(&hooksOnly, "hooks-only", false, "only add missing Claude Code hooks, keeping this machine's pairing (cannot be combined with --relay or --qr-invert)")
+	cmd.MarkFlagsMutuallyExclusive("hooks-only", "relay")
+	cmd.MarkFlagsMutuallyExclusive("hooks-only", "qr-invert")
 	return cmd
 }
 
@@ -269,7 +279,7 @@ func newProgressLine(d pairDeps) (progress func(time.Duration), clear func()) {
 	return progress, clear
 }
 
-// installHooks is BR-07's second half and BR-08: build the eight entries,
+// installHooks is BR-07's second half and BR-08: build the ten entries,
 // show the diff, ask, write.
 func installHooks(d pairDeps, deviceName string) error {
 	if _, err := fmt.Fprintf(d.out, "Paired with %s.\n\n", displayName(deviceName)); err != nil {

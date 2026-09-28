@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/agentpulsesoftware/agentpulse-bridge/internal/claudehooks"
 )
 
 // claudeVersionTimeout bounds check 3's `claude --version`, matching
@@ -106,6 +108,9 @@ func claudeVersionConsequence(unsupported []string) string {
 	if has["SessionEnd"] {
 		parts = append(parts, "no SessionEnd means sessions end only on the idle timer")
 	}
+	if has[claudehooks.SubagentStart] || has[claudehooks.SubagentStop] {
+		parts = append(parts, "subagents will show without precise start and stop")
+	}
 	if len(parts) == 0 {
 		return "the bridge keeps working with less information from Claude Code"
 	}
@@ -139,7 +144,7 @@ func checkClaudeVersion(output string, runErr error) Result {
 	if len(unsupported) == 0 {
 		return Result{
 			Name: "claude-version", Verdict: PASS,
-			Finding: fmt.Sprintf("Claude Code %s supports all 8 hook events", versionStr),
+			Finding: fmt.Sprintf("Claude Code %s supports all %d hook events", versionStr, len(compat.Events)),
 		}
 	}
 	return Result{

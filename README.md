@@ -45,6 +45,13 @@ sh install.sh
 Then run `agentpulse pair` to connect the machine to the AgentPulse app, and
 `agentpulse doctor` if anything looks wrong.
 
+### Upgrading
+
+After `brew upgrade agentpulse` (or `pip install --upgrade agentpulse`), run
+`agentpulse pair --hooks-only` once to enable subagent tracking: it shows the
+hooks it will add to `~/.claude/settings.json`, asks first, and keeps your
+pairing.
+
 ## What the bridge sends, and what it does not
 
 Every event the bridge sends is one object from a closed set. "Closed" means

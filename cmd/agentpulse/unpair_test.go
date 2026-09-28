@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/agentpulsesoftware/agentpulse-bridge/internal/claudehooks"
 	"github.com/agentpulsesoftware/agentpulse-bridge/internal/config"
 	"github.com/agentpulsesoftware/agentpulse-bridge/internal/hooks"
 	"github.com/agentpulsesoftware/agentpulse-bridge/internal/xdgpaths"
@@ -19,7 +20,7 @@ import (
 // BR-09's "keeps no secret after unpair" looks like from outside.
 func (f *fakeCredStore) deletedSecret() bool { return !f.has }
 
-// pairedMachine builds the full local state a paired bridge has: the eight
+// pairedMachine builds the full local state a paired bridge has: the ten
 // hook entries plus another tool's, a config file, a spool, a state file,
 // a watch list, a lock file, a session scratch file, and a log.
 func pairedMachine(t *testing.T) (home string, store *fakeCredStore) {
@@ -148,6 +149,42 @@ func TestUnpairRemovesEverythingItOwns(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), xdgpaths.LogPath()) {
 		t.Errorf("the summary does not say the log was kept:\n%s", out.String())
+	}
+}
+
+// TestUnpairRemovesAllTenHooks checks BR-09 per event, including the two
+// subagent hooks: every entry pair registered goes, and the other tool's
+// Stop hook stays.
+func TestUnpairRemovesAllTenHooks(t *testing.T) {
+	home, store := pairedMachine(t)
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	binary, err := currentBinaryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := hooks.NewOwner(binary)
+	installed, err := hooks.InstalledCommands(settingsPath, owner)
+	if err != nil || len(installed) != len(claudehooks.BR08Events) {
+		t.Fatalf("setup: %d owned events (%v), want all %d", len(installed), err, len(claudehooks.BR08Events))
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	cmd, out := testCmd("")
+	if err := runUnpair(context.Background(), unpairDeps{
+		out: out, cmd: cmd, relayFlag: srv.URL, yes: true, credStore: store,
+	}); err != nil {
+		t.Fatalf("runUnpair: %v", err)
+	}
+
+	installed, err = hooks.InstalledCommands(settingsPath, owner)
+	if err != nil || len(installed) != 0 {
+		t.Errorf("owned entries left after unpair: %v (%v)", installed, err)
+	}
+	if got := settingsHooks(t, settingsPath); len(got) != 1 || len(got["Stop"]) != 1 {
+		t.Errorf("hooks after unpair = %+v, want only the other tool's Stop hook", got)
 	}
 }
 

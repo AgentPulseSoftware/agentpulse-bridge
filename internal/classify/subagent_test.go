@@ -306,3 +306,106 @@ func TestOverflowSubagentDoesNotTouchTheMainChain(t *testing.T) {
 		t.Errorf("main chain's read = %+v, %v; want activity, not suppressed by the overflow subagent's", ev, ok)
 	}
 }
+
+// Every subagent beyond the cap shares one Overflow chain, so a one-shot
+// marker set there by one of them could be reset by another's PreToolUse
+// (losing the result) or consumed by another's PostToolUse (misattributing
+// it). Overflow chains therefore never track those markers: a runner, a
+// `gh pr create` or a `git commit` there is plain activity, and a
+// PostToolUse there emits nothing.
+func TestOverflowSubagentsNeverTrackTransactionalMarkers(t *testing.T) {
+	bash := func(hookEvent, agentID, command string, at time.Duration) HookInput {
+		in := subInput(hookEvent, agentID, "reviewer")
+		in.ToolName = "Bash"
+		if command != "" {
+			in.ToolInput = toolInputJSON(t, map[string]any{"command": command})
+		}
+		in.ToolResponse = toolResponseJSON(t, "ok  \texample.com/pkg\t0.01s\nhttps://github.com/o/r/pull/7", "")
+		in.Now = fixedNow.Add(at)
+		return in
+	}
+	ask := func(hookEvent, agentID string, at time.Duration) HookInput {
+		in := subInput(hookEvent, agentID, "planner")
+		in.ToolName = "AskUserQuestion"
+		in.Now = fixedNow.Add(at)
+		return in
+	}
+	read := func(agentID string, at time.Duration) HookInput {
+		return readInput(HookPreToolUse, agentID, fixedNow.Add(at))
+	}
+
+	tests := []struct {
+		name  string
+		steps []HookInput
+	}{
+		{"interleaved test run", []HookInput{
+			bash(HookPreToolUse, "x", "go test ./...", 1*time.Second),
+			read("y", 2*time.Second),
+			bash(HookPostToolUse, "x", "", 3*time.Second),
+			bash(HookPostToolUse, "y", "", 4*time.Second),
+		}},
+		{"another subagent's PostToolUse right after a test run", []HookInput{
+			bash(HookPreToolUse, "x", "go test ./...", 1*time.Second),
+			bash(HookPostToolUse, "y", "", 2*time.Second),
+			bash(HookPostToolUse, "x", "", 3*time.Second),
+		}},
+		{"pr and commit", []HookInput{
+			bash(HookPreToolUse, "x", "gh pr create --fill", 1*time.Second),
+			bash(HookPostToolUse, "y", "", 2*time.Second),
+			bash(HookPreToolUse, "y", "git commit -m wip", 3*time.Second),
+			bash(HookPostToolUse, "y", "", 4*time.Second),
+		}},
+		{"question", []HookInput{
+			ask(HookPreToolUse, "x", 1*time.Second),
+			bash(HookPostToolUse, "y", "", 2*time.Second),
+			ask(HookPostToolUse, "x", 3*time.Second),
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := NewSessionState()
+			for i := 0; i < maxSubagentChains; i++ {
+				Classify(readInput(HookPreToolUse, string(rune('A'+i)), fixedNow), state)
+			}
+			for _, in := range tt.steps {
+				ev, ok := Classify(in, state)
+				if _, own := state.Subagents[SubagentID(in.AgentID)]; own {
+					t.Fatalf("setup: %s got its own chain, want it past the cap", in.AgentID)
+				}
+				if !ok {
+					continue
+				}
+				switch ev.Type {
+				case TypeActivity, TypeNeedsInput:
+				default:
+					t.Errorf("%s %s from overflow subagent %s emitted %s, want only activity or needs_input",
+						in.HookEventName, in.ToolName, in.AgentID, ev.Type)
+				}
+				if ev.Subagent == nil || ev.Subagent.ID != SubagentID(in.AgentID) {
+					t.Errorf("%s from %s carries %+v, want its own envelope", ev.Type, in.AgentID, ev.Subagent)
+				}
+			}
+			if o := state.Overflow; o.PendingVerification != nil || o.PendingNeedsInput != nil || o.PRPending || o.CommitPending {
+				t.Errorf("Overflow holds a marker: %+v", *o)
+			}
+			if state.VerificationRuns != 0 || state.Commits != 0 {
+				t.Errorf("counters = %d runs, %d commits; want none counted from overflow", state.VerificationRuns, state.Commits)
+			}
+		})
+	}
+}
+
+// A marker left in Overflow by an older build's scratch file is never
+// consumed.
+func TestOverflowIgnoresAStaleMarker(t *testing.T) {
+	state := NewSessionState()
+	for i := 0; i < maxSubagentChains; i++ {
+		Classify(readInput(HookPreToolUse, string(rune('A'+i)), fixedNow), state)
+	}
+	state.Overflow = &ChainState{CommitPending: true}
+	post := subInput(HookPostToolUse, "y", "reviewer")
+	post.Now = fixedNow.Add(time.Second)
+	if ev, ok := Classify(post, state); ok {
+		t.Errorf("overflow PostToolUse emitted %s, want nothing", ev.Type)
+	}
+}

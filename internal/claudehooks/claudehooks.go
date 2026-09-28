@@ -20,18 +20,34 @@ const (
 	NotificationIdlePromptPrefix       = "Claude is waiting for your input"
 )
 
-// BR08Events are the eight Claude Code hook events AgentPulse registers
-// (BR-08), in the order they are written to settings.json: SessionStart,
-// UserPromptSubmit, PreToolUse, PostToolUse, PermissionRequest,
-// Notification, Stop, SessionEnd.
+// BR08Events are the ten Claude Code hook events AgentPulse registers
+// (BR-08, ADR-005 section 3), in the order they are written to
+// settings.json: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse,
+// PermissionRequest, Notification, Stop, SessionEnd, and then the two
+// subagent hooks, SubagentStart and SubagentStop.
 //
 // This is the single source of that list. cmd/agentpulse/settings.go's
 // hookEntries, internal/doctor's settings-file and compatibility-table
 // checks, and internal/doctor/compat.json all agree with this slice by
 // construction — internal/doctor's compat_test.go fails if compat.json
 // or COMPATIBILITY.md drift from it, rather than letting three
-// copies of the same eight names quietly disagree.
+// copies of the same ten names quietly disagree.
 var BR08Events = []string{
 	"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
 	"PermissionRequest", "Notification", "Stop", "SessionEnd",
+	SubagentStart, SubagentStop,
+}
+
+// The two subagent hooks (ADR-005 section 3). A machine paired before
+// they were registered lacks them until "agentpulse pair --hooks-only"
+// adds them; subagents still show without them, only with a less precise
+// start and stop, so their absence is a warning rather than a failure.
+const (
+	SubagentStart = "SubagentStart"
+	SubagentStop  = "SubagentStop"
+)
+
+// IsSubagentEvent reports whether event is one of the two subagent hooks.
+func IsSubagentEvent(event string) bool {
+	return event == SubagentStart || event == SubagentStop
 }
