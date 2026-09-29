@@ -127,7 +127,7 @@ func PlanInstall(settingsPath string, owner Owner, entries []Entry) (*Plan, erro
 }
 
 // PlanUninstall reads settingsPath and removes every hook entry owner owns
-// (see Owner.Owns), from every event — not just the eight BR-08 registers —
+// (see Owner.Owns), from every event — not just the ten BR-08 registers —
 // leaving all other hooks and settings untouched (BR-09).
 func PlanUninstall(settingsPath string, owner Owner) (*Plan, error) {
 	return plan(settingsPath, owner, nil, false)

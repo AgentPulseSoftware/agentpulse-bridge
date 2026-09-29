@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"time"
 
@@ -47,9 +48,9 @@ type doctorDeps struct {
 // status.go and projects.go use): read-only, prints one line (plus an
 // optional remedy line) per check, then the informational keep-awake
 // row, and returns errAlreadyReported (exit 1) exactly when one of the
-// eight checks is a FAIL. Checks 1 and 3 can only PASS or WARN (SPEC
-// 7.4), and neither can the keep-awake row, so none of those can cause a
-// non-zero exit on their own.
+// eight checks is a FAIL. Check 3 can only PASS or WARN (SPEC 7.4), and
+// neither can the keep-awake row; check 1 can FAIL, but only when a
+// registered hook binary is missing or not executable (P5-27).
 func runDoctor(ctx context.Context, d doctorDeps) error {
 	if d.now == nil {
 		d.now = time.Now
@@ -72,6 +73,7 @@ func runDoctor(ctx context.Context, d doctorDeps) error {
 		BinaryPath:   binaryPath,
 		SettingsPath: settingsPath,
 		LookPath:     exec.LookPath,
+		StatBinary:   os.Stat,
 		InstalledCommands: func() (map[string][]string, error) {
 			return hooks.InstalledCommands(settingsPath, owner)
 		},

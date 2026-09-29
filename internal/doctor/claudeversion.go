@@ -86,10 +86,11 @@ func describeClaudeVersionError(err error) string {
 // claudeVersionConsequence renders SPEC 7.4's degradation list in plain
 // words for exactly the events unsupported names, in the order SPEC 7.4
 // states them: no PermissionRequest, no PermissionRequest and no
-// Notification together, then no SessionEnd. Events other than these
-// three (SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop)
-// carry no SPEC 7.4 consequence of their own, so they are only ever
-// named in the Finding's own event list, not here.
+// Notification together, no SessionEnd, and no SubagentStart or
+// SubagentStop. Events other than these four (SessionStart,
+// UserPromptSubmit, PreToolUse, PostToolUse, Stop) carry no SPEC 7.4
+// consequence of their own, so they are only ever named in the Finding's
+// own event list, not here.
 func claudeVersionConsequence(unsupported []string) string {
 	has := map[string]bool{}
 	for _, e := range unsupported {

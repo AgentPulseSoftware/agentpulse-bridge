@@ -24,6 +24,13 @@ func TestOwnerOwns(t *testing.T) {
 		{"bare name on PATH", "agentpulse hook", true},
 		{"dev record shape", "env AGENTPULSE_RECORD_DIR='/tmp/rec' '" + testBinary + "' hook", true},
 		{"the binary after a package upgrade moved it", "/opt/homebrew/bin/agentpulse hook", true},
+		// P5-27: whichever form a hook entry names — the pre-upgrade,
+		// versioned Cellar path a `brew upgrade` has since deleted, or
+		// the stable brew --prefix symlink path this bridge now writes
+		// instead — both still name this bridge and so are still ours to
+		// repoint or remove.
+		{"a stale, now-deleted Cellar path", "/opt/homebrew/Cellar/agentpulse/1.0.0/bin/agentpulse hook", true},
+		{"the stable opt/<formula>/bin symlink path", "/opt/homebrew/opt/agentpulse/bin/agentpulse hook", true},
 		{"extra arguments after hook", testBinary + " hook --debug", true},
 
 		{"a wrapper with our name inside its own", "/usr/local/bin/my-agentpulse-wrapper hook", false},

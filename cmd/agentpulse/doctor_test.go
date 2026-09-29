@@ -55,6 +55,119 @@ func writeAllEightHooksRegistered(t *testing.T) {
 	}
 }
 
+// writeHooksRegisteredAt writes ~/.claude/settings.json with all ten
+// BR-08 events registered to hookCommand(binary), for P5-27's doctor
+// tests, which care about the exact registered path.
+func writeHooksRegisteredAt(t *testing.T, binary string) {
+	t.Helper()
+	path, err := defaultSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	b.WriteString(`{"hooks":{`)
+	for i, event := range claudehooks.BR08Events {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		fmt.Fprintf(&b, `%q:[{"matcher":"","hooks":[{"type":"command","command":%q,"timeout":10}]}]`, event, hookCommand(binary))
+	}
+	b.WriteString("}}")
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil { //nolint:gosec // test-controlled temp path
+		t.Fatal(err)
+	}
+}
+
+// TestRunDoctorFailsWhenAHomebrewUpgradeDeletedTheRegisteredBinary is
+// P5-27's doctor requirement end to end: settings.json still names the
+// versioned Cellar path a `brew upgrade` deleted, so "doctor" must FAIL
+// with the `agentpulse pair --hooks-only` remedy rather than PASS.
+func TestRunDoctorFailsWhenAHomebrewUpgradeDeletedTheRegisteredBinary(t *testing.T) {
+	setTestXDGDirs(t)
+	deletedCellarPath := filepath.Join(realTempDir(t), "Cellar", "agentpulse", "1.0.0", "bin", "agentpulse")
+	writeHooksRegisteredAt(t, deletedCellarPath) // never created on disk
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	_, out := testCmd("")
+	err := runDoctor(context.Background(), doctorDeps{
+		out: out, relayFlag: srv.URL, credStore: pairedCredStore(),
+	})
+	if !errors.Is(err, errAlreadyReported) {
+		t.Fatalf("runDoctor() = %v, want errAlreadyReported (a deleted registered binary is a FAIL)", err)
+	}
+	text := out.String()
+	if !strings.Contains(text, "FAIL  binary-on-path") {
+		t.Errorf("output does not show binary-on-path FAIL:\n%s", text)
+	}
+	if !strings.Contains(text, deletedCellarPath) || !strings.Contains(text, "does not exist") {
+		t.Errorf("output does not name the missing path:\n%s", text)
+	}
+	if !strings.Contains(text, "agentpulse pair --hooks-only") {
+		t.Errorf("output does not show the --hooks-only remedy:\n%s", text)
+	}
+}
+
+// TestRunDoctorPassesThroughALiveHomebrewSymlinkAfterUpgrade simulates a
+// Homebrew Cellar/opt layout and a `brew upgrade` in a scratch HOME:
+// settings.json names the stable bin/ symlink path (what P5-27's
+// currentBinaryPath now writes), the symlink is relinked to a new
+// version the way `brew upgrade` relinks it, and "doctor" must not FAIL
+// — the path Claude Code actually runs still resolves and is
+// executable.
+func TestRunDoctorPassesThroughALiveHomebrewSymlinkAfterUpgrade(t *testing.T) {
+	setTestXDGDirs(t)
+	prefix := realTempDir(t)
+	cellarV1 := filepath.Join(prefix, "Cellar", "agentpulse", "1.0.0", "bin", "agentpulse")
+	writeExecutable(t, cellarV1)
+	binLink := filepath.Join(prefix, "bin", "agentpulse")
+	if err := os.MkdirAll(filepath.Dir(binLink), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(cellarV1, binLink); err != nil {
+		t.Fatal(err)
+	}
+	writeHooksRegisteredAt(t, binLink)
+
+	// brew upgrade: delete the old version, install the new one, relink.
+	if err := os.RemoveAll(filepath.Dir(filepath.Dir(cellarV1))); err != nil {
+		t.Fatal(err)
+	}
+	cellarV2 := filepath.Join(prefix, "Cellar", "agentpulse", "1.1.0", "bin", "agentpulse")
+	writeExecutable(t, cellarV2)
+	if err := os.Remove(binLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(cellarV2, binLink); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	_, out := testCmd("")
+	err := runDoctor(context.Background(), doctorDeps{
+		out: out, relayFlag: srv.URL, credStore: pairedCredStore(),
+	})
+	text := out.String()
+	if strings.Contains(text, "FAIL  binary-on-path") {
+		t.Errorf("binary-on-path FAILed after the upgrade through a live symlink:\n%s", text)
+	}
+	if err != nil && strings.Contains(text, "FAIL  binary-on-path") {
+		t.Errorf("runDoctor() = %v because of binary-on-path:\n%s", err, text)
+	}
+}
+
 func TestRunDoctorListsAllEightChecksByName(t *testing.T) {
 	setTestXDGDirs(t)
 	writeAllEightHooksRegistered(t)
