@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -17,11 +18,11 @@ import (
 	"github.com/agentpulsesoftware/agentpulse-bridge/internal/xdgpaths"
 )
 
-// hooksOnlyMachine is a machine paired before the subagent hooks existed:
-// a config.json with a bridge id, and a settings file holding the eight
-// original entries plus a hook of the user's own, listed after this
+// hooksOnlyMachine is a machine paired by an older bridge: a config.json
+// with a bridge id, and a settings file holding this bridge's entry for
+// each of events plus a hook of the user's own, listed after this
 // bridge's entry in PreToolUse. Any request to the relay fails the test.
-func hooksOnlyMachine(t *testing.T) (settingsPath string, before []byte) {
+func hooksOnlyMachine(t *testing.T, events []string) (settingsPath string, before []byte) {
 	t.Helper()
 	home := pairingHome(t)
 	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -48,7 +49,7 @@ func hooksOnlyMachine(t *testing.T) (settingsPath string, before []byte) {
 		Hooks   []spec `json:"hooks"`
 	}
 	byEvent := map[string][]group{}
-	for _, event := range claudehooks.BR08Events[:8] {
+	for _, event := range events {
 		byEvent[event] = []group{{Hooks: []spec{{"command", hookCommand(binary), 10}}}}
 	}
 	byEvent["PreToolUse"] = append(byEvent["PreToolUse"], group{Matcher: "Bash", Hooks: []spec{{Type: "command", Command: "my-linter --check"}}})
@@ -94,8 +95,36 @@ func hooksObject(t *testing.T, data []byte) map[string]json.RawMessage {
 	return h
 }
 
-func TestHooksOnlyAddsExactlyTheMissingSubagentHooks(t *testing.T) {
-	settingsPath, before := hooksOnlyMachine(t)
+// eventsExcept returns claudehooks.BR08Events without the named ones.
+func eventsExcept(skip ...string) []string {
+	var out []string
+	for _, e := range claudehooks.BR08Events {
+		if !slices.Contains(skip, e) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func TestHooksOnlyAddsExactlyTheMissingHooks(t *testing.T) {
+	tests := []struct {
+		name    string
+		missing []string
+	}{
+		// Paired after the subagent hooks, before ADR-006.
+		{"ten existing entries", []string{"StopFailure"}},
+		// Paired before the subagent hooks.
+		{"eight existing entries", []string{"StopFailure", "SubagentStart", "SubagentStop"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testHooksOnlyAdds(t, tt.missing)
+		})
+	}
+}
+
+func testHooksOnlyAdds(t *testing.T, missing []string) {
+	settingsPath, before := hooksOnlyMachine(t, eventsExcept(missing...))
 	configBefore, _ := os.ReadFile(xdgpaths.ConfigPath())
 
 	out, err := runPairCmd(t, "", "--hooks-only", "--yes")
@@ -104,8 +133,8 @@ func TestHooksOnlyAddsExactlyTheMissingSubagentHooks(t *testing.T) {
 	}
 	after, _ := os.ReadFile(settingsPath) //nolint:gosec // test-controlled path
 	was, now := hooksObject(t, before), hooksObject(t, after)
-	if len(now) != len(was)+2 {
-		t.Errorf("settings has %d hook events, want %d (two added)", len(now), len(was)+2)
+	if len(now) != len(was)+len(missing) || len(now) != len(claudehooks.BR08Events) {
+		t.Errorf("settings has %d hook events, want %d (%v added)", len(now), len(was)+len(missing), missing)
 	}
 	for event, raw := range was {
 		var a, b bytes.Buffer
@@ -116,7 +145,7 @@ func TestHooksOnlyAddsExactlyTheMissingSubagentHooks(t *testing.T) {
 		}
 	}
 	hooksByEvent := settingsHooks(t, settingsPath)
-	for _, event := range []string{"SubagentStart", "SubagentStop"} {
+	for _, event := range missing {
 		g := hooksByEvent[event]
 		if len(g) != 1 || len(g[0].Hooks) != 1 || g[0].Matcher != "" || g[0].Hooks[0].Timeout != 10 ||
 			!strings.HasSuffix(g[0].Hooks[0].Command, " hook") {
@@ -126,7 +155,7 @@ func TestHooksOnlyAddsExactlyTheMissingSubagentHooks(t *testing.T) {
 			t.Errorf("diff does not show %s being added:\n%s", event, out)
 		}
 	}
-	if strings.Count(out, "\n+") < 2 || strings.Contains(out, "\n-") {
+	if strings.Count(out, "\n+") < len(missing) || strings.Contains(out, "\n-") {
 		t.Errorf("diff should only add lines:\n%s", out)
 	}
 	if !strings.Contains(out, "your pairing is unchanged") {
@@ -150,7 +179,7 @@ func TestHooksOnlyAddsExactlyTheMissingSubagentHooks(t *testing.T) {
 }
 
 func TestHooksOnlyAsksFirst(t *testing.T) {
-	settingsPath, before := hooksOnlyMachine(t)
+	settingsPath, before := hooksOnlyMachine(t, eventsExcept("StopFailure", "SubagentStart", "SubagentStop"))
 	out, err := runPairCmd(t, "n\n", "--hooks-only")
 	if err != nil {
 		t.Fatalf("declined run: %v", err)

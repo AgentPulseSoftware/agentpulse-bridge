@@ -34,6 +34,16 @@ type HookInput struct {
 	Message       string          `json:"message,omitempty"`
 	Reason        string          `json:"reason,omitempty"`
 
+	// Error is StopFailure's cause (ADR-006 section 2), a short code such
+	// as "rate_limit"; NotificationType is Notification's kind, read only
+	// for the usage-limit types. Classify compares each against a fixed
+	// table and sends only the table's own code, never the value itself.
+	// StopFailure's error_details and last_assistant_message, which are
+	// message text, deliberately have no field here or in ParseHookInput
+	// (ADR-006 section 7): they are never decoded at all.
+	Error            string `json:"error,omitempty"`
+	NotificationType string `json:"notification_type,omitempty"`
+
 	// AgentID and AgentType are present only on hooks that fire for, or
 	// inside, a Claude Code subagent (COMPATIBILITY.md, "Subagent hooks";
 	// ADR-005 section 1). AgentID is used only as the input to SubagentID's
@@ -69,33 +79,37 @@ type HookInput struct {
 // itself fails (BR-02).
 func ParseHookInput(raw []byte) (HookInput, error) {
 	var doc struct {
-		HookEventName string          `json:"hook_event_name"`
-		SessionID     string          `json:"session_id"`
-		Cwd           string          `json:"cwd"`
-		ToolName      string          `json:"tool_name"`
-		ToolInput     json.RawMessage `json:"tool_input"`
-		ToolResponse  json.RawMessage `json:"tool_response"`
-		Prompt        string          `json:"prompt"`
-		Message       string          `json:"message"`
-		Reason        string          `json:"reason"`
-		AgentID       string          `json:"agent_id"`
-		AgentType     string          `json:"agent_type"`
+		HookEventName    string          `json:"hook_event_name"`
+		SessionID        string          `json:"session_id"`
+		Cwd              string          `json:"cwd"`
+		ToolName         string          `json:"tool_name"`
+		ToolInput        json.RawMessage `json:"tool_input"`
+		ToolResponse     json.RawMessage `json:"tool_response"`
+		Prompt           string          `json:"prompt"`
+		Message          string          `json:"message"`
+		Reason           string          `json:"reason"`
+		Error            string          `json:"error"`
+		NotificationType string          `json:"notification_type"`
+		AgentID          string          `json:"agent_id"`
+		AgentType        string          `json:"agent_type"`
 	}
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return HookInput{}, err
 	}
 	return HookInput{
-		HookEventName: doc.HookEventName,
-		SessionID:     doc.SessionID,
-		Cwd:           doc.Cwd,
-		ToolName:      doc.ToolName,
-		ToolInput:     doc.ToolInput,
-		ToolResponse:  doc.ToolResponse,
-		Prompt:        doc.Prompt,
-		Message:       doc.Message,
-		Reason:        doc.Reason,
-		AgentID:       doc.AgentID,
-		AgentType:     doc.AgentType,
+		HookEventName:    doc.HookEventName,
+		SessionID:        doc.SessionID,
+		Cwd:              doc.Cwd,
+		ToolName:         doc.ToolName,
+		ToolInput:        doc.ToolInput,
+		ToolResponse:     doc.ToolResponse,
+		Prompt:           doc.Prompt,
+		Message:          doc.Message,
+		Reason:           doc.Reason,
+		Error:            doc.Error,
+		NotificationType: doc.NotificationType,
+		AgentID:          doc.AgentID,
+		AgentType:        doc.AgentType,
 	}, nil
 }
 
@@ -109,6 +123,11 @@ const (
 	HookNotification      = "Notification"
 	HookStop              = "Stop"
 	HookSessionEnd        = "SessionEnd"
+
+	// StopFailure runs instead of Stop when a turn ends on an API error;
+	// it becomes paused (ADR-006 section 2). "agentpulse pair" registers
+	// it (BR-08).
+	HookStopFailure = claudehooks.StopFailure
 
 	// SubagentStart and SubagentStop become subagent_start and
 	// subagent_stop when SubagentsOn is true, and nothing otherwise

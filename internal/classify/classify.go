@@ -63,7 +63,12 @@ func Classify(input HookInput, state *SessionState) (event *Event, ok bool) {
 	case HookPermissionRequest:
 		return classifyPermissionRequest(input, state, state.chain(chainID, now), now), true
 	case HookNotification:
+		if ev, handled := classifyQuotaNotification(input, state, now); handled {
+			return ev, ev != nil
+		}
 		return classifyNotification(input, state, state.chain(chainID, now), now)
+	case HookStopFailure:
+		return classifyStopFailure(input, state, now)
 	case HookSubagentStart:
 		if chainID == "" {
 			return nil, false // SubagentsOn is false, or no agent_id to name the chain by
@@ -172,6 +177,78 @@ func classifyStop(input HookInput, state *SessionState, c *ChainState, now time.
 	// BR-17: the next prompt after a stop gets a task_label again.
 	state.AwaitingTaskLabel = true
 	return buildEvent(input, state, c, now, TypeStop, EmptyPayload{})
+}
+
+// --- StopFailure and the usage-limit notifications: paused (ADR-006) ---
+
+// Notification types Claude Code sends around a claude.ai usage limit
+// (ADR-006 section 2).
+const (
+	notificationQuotaAutoResumeFired    = "quota_auto_resume_fired"
+	notificationQuotaAutoResumeStale    = "quota_auto_resume_stale"
+	notificationQuotaAutoResumeDisabled = "quota_auto_resume_disabled"
+)
+
+// classifyStopFailure turns a StopFailure into paused with the cause
+// pausedCause gives. It never re-arms the task label (BR-17): the prompt
+// that continues after a usage limit is Claude Code's own fixed text,
+// not the user's words, so it must not become the label.
+//
+// A StopFailure inside a subagent produces no event, whether or not
+// subagent chains are on: the helper's failure returns to the main chain
+// as a tool result, and a usage limit is account-wide, so the main
+// chain's own StopFailure follows (ADR-006 section 2). That is why this
+// reads AgentID itself rather than InSubagent.
+func classifyStopFailure(input HookInput, state *SessionState, now time.Time) (*Event, bool) {
+	if input.AgentID != "" {
+		return nil, false // also why paused never carries subagent (ADR-006 section 1)
+	}
+	return buildEvent(input, state, &state.ChainState, now, TypePaused, PausedPayload{
+		Cause: pausedCause(input.Error),
+	}), true
+}
+
+// pausedCause maps StopFailure's "error" to the cause enum by exact
+// comparison (ADR-006 section 2). Every value not listed, including an
+// empty one and any a future Claude Code adds, is api_error, so a new
+// error still shows Paused rather than drifting to lost contact. The
+// value itself is never sent or logged.
+func pausedCause(errorCode string) string {
+	switch errorCode {
+	case "rate_limit":
+		return CauseUsageLimit
+	case "billing_error", "account_on_hold":
+		return CauseBilling
+	case "authentication_failed", "oauth_org_not_allowed", "cloud_credential_error":
+		return CauseAuth
+	case "overloaded":
+		return CauseOverloaded
+	case "max_output_tokens":
+		return CauseOutputLimit
+	default: // server_error, invalid_request, model_not_found, unknown, "", anything else
+		return CauseAPIError
+	}
+}
+
+// classifyQuotaNotification handles the three usage-limit notification
+// types (ADR-006 section 2). handled is false for every other
+// notification, which then goes through classifyNotification exactly as
+// before. A stale reset ("press Enter to continue") on the main chain is
+// paused with limit_reset; the other two types, and any of the three
+// inside a subagent, produce no event: the continuation's own prompt or
+// tool call clears Paused.
+func classifyQuotaNotification(input HookInput, state *SessionState, now time.Time) (ev *Event, handled bool) {
+	switch input.NotificationType {
+	case notificationQuotaAutoResumeStale:
+		if input.AgentID != "" {
+			return nil, true
+		}
+		return buildEvent(input, state, &state.ChainState, now, TypePaused, PausedPayload{Cause: CauseLimitReset}), true
+	case notificationQuotaAutoResumeFired, notificationQuotaAutoResumeDisabled:
+		return nil, true
+	default:
+		return nil, false
+	}
 }
 
 func classifySessionEnd(input HookInput, state *SessionState, c *ChainState, now time.Time) *Event {
@@ -418,6 +495,9 @@ func needsInputEvent(input HookInput, state *SessionState, c *ChainState, now ti
 }
 
 // --- activity suppression (SPEC 7.2) ---
+//
+// Only activity is ever suppressed. Every other type, paused included
+// (ADR-006 section 2), is emitted whenever its hook fires.
 
 func activityEvent(input HookInput, state *SessionState, c *ChainState, now time.Time, category string) (*Event, bool) {
 	if !shouldEmitActivity(c, category, now) {

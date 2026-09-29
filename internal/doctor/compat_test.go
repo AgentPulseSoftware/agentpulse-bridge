@@ -26,7 +26,7 @@ func TestCompatJSONParses(t *testing.T) {
 
 // TestCompatJSONEventsMatchBR08Events exists for one reason: compat.json's
 // event names must equal claudehooks.BR08Events
-// exactly, same ten names in the same order. Changing either file
+// exactly, same eleven names in the same order. Changing either file
 // alone breaks this.
 func TestCompatJSONEventsMatchBR08Events(t *testing.T) {
 	var got []string
@@ -39,7 +39,7 @@ func TestCompatJSONEventsMatchBR08Events(t *testing.T) {
 }
 
 // compatibilityMDEventPattern matches one row of COMPATIBILITY.md's "The
-// ten registered hook events (BR-08)" table: a backtick-quoted event
+// eleven registered hook events (BR-08)" table: a backtick-quoted event
 // name in the first column.
 var compatibilityMDEventPattern = regexp.MustCompile("(?m)^\\| `([A-Za-z]+)` \\|")
 
@@ -51,7 +51,7 @@ var compatibilityMDRecordedVersionPattern = regexp.MustCompile("Claude Code vers
 // package's own directory (internal/doctor). The embed directive
 // compat.go uses for compat.json cannot reach one directory up to this
 // file, so this test is the only place that keeps compat.json and
-// COMPATIBILITY.md talking about the same ten events and the same
+// COMPATIBILITY.md talking about the same eleven events and the same
 // baseline version.
 func readCompatibilityMD(t *testing.T) string {
 	t.Helper()
@@ -149,11 +149,11 @@ func TestUnsupportedEventsAtOrAboveBaselineIsEmpty(t *testing.T) {
 	}
 }
 
-func TestUnsupportedEventsBelowBaselineListsAllEightInOrder(t *testing.T) {
+func TestUnsupportedEventsBelowBaselineListsAllInOrder(t *testing.T) {
 	old := [3]int{0, 0, 1}
 	got := unsupportedEvents(old)
 	if !equalStrings(got, claudehooks.BR08Events) {
-		t.Errorf("unsupportedEvents(0.0.1) = %v, want all 8 in claudehooks.BR08Events order = %v", got, claudehooks.BR08Events)
+		t.Errorf("unsupportedEvents(0.0.1) = %v, want all of claudehooks.BR08Events in order = %v", got, claudehooks.BR08Events)
 	}
 }
 

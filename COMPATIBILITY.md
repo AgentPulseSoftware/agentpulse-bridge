@@ -17,7 +17,7 @@ recordings. Confirming a row means running `agentpulse record install`
 with a development build and checking the row off below once that hook
 event actually shows up in a recording with the fields SPEC 7.2 expects.
 
-## The ten registered hook events (BR-08)
+## The eleven registered hook events (BR-08)
 
 | Event | Confirmed in recordings | Released in | Notes |
 |---|---|---|---|
@@ -29,6 +29,7 @@ event actually shows up in a recording with the fields SPEC 7.2 expects.
 | `Notification` | TODO | unreleased | |
 | `Stop` | TODO | unreleased | |
 | `SessionEnd` | TODO | unreleased | |
+| `StopFailure` | TODO | unreleased | Runs instead of `Stop` when a turn ends on an API error, such as a usage limit (ADR-006 section 6); see "Usage-limit pauses" below. A machine paired before this row existed adds it with `agentpulse pair --hooks-only`. |
 | `SubagentStart` | `2.1.283` | unreleased | Added for subagent chains (ADR-005 section 3); see "Subagent hooks" below. A machine paired before this row existed adds it with `agentpulse pair --hooks-only`. |
 | `SubagentStop` | `2.1.283` | unreleased | As `SubagentStart`. |
 
@@ -98,6 +99,38 @@ not a guess at when they were introduced. On an older Claude Code,
 `agentpulse doctor` warns that subagents will show without a precise
 start and stop.
 
+## Usage-limit pauses
+
+`StopFailure` and three `Notification` types become the `paused` event,
+carrying one fixed cause code (ADR-006 sections 1 and 2). No recording
+of either has been made yet: a real usage limit cannot be triggered on
+demand, so the `stopfailure-*` fixture scenarios are synthetic, written
+from Anthropic's hooks reference. The `StopFailure` minimum version
+above is the one the subagent hooks were recorded with, the
+conservative choice until a recording of `StopFailure` itself exists.
+
+The bridge reads exactly two input fields on this path:
+
+- `error` on `StopFailure`, compared by exact value against a fixed
+  table. Any value not in the table, including an empty one, becomes the
+  cause `api_error`, so a new Claude Code value still shows as paused.
+- `notification_type` on `Notification`, for
+  `quota_auto_resume_stale` (the limit reset while the computer slept;
+  sent as cause `limit_reset`), `quota_auto_resume_fired` and
+  `quota_auto_resume_disabled` (both send nothing). The permission and
+  idle notifications are still told apart by their message text.
+
+It never reads, sends or logs these fields, which are message text:
+`error_details` and `last_assistant_message` on `StopFailure`, and
+`title` and `message` on the usage-limit notifications. A `StopFailure`
+or usage-limit notification carrying `agent_id` (inside a subagent)
+sends nothing.
+
+Still to confirm with a real usage limit: which `error` value a
+claude.ai subscription limit arrives as (`rate_limit` is assumed), and
+whether `quota_auto_resume_fired` comes before the continuation's
+`UserPromptSubmit`.
+
 ## How to update this file
 
 When scenarios are captured from real sessions, update each row's
@@ -113,7 +146,7 @@ at the top if you're using a newer Claude Code than what's listed.
 check 3 (BR-15, SPEC 7.4, NFR-11) actually reads at run time — `go:embed`
 cannot reach this file from `internal/doctor`'s own package directory, so
 the table is duplicated there rather than embedded from here. It lists
-the same ten events, in the same order, each with the earliest Claude
+the same eleven events, in the same order, each with the earliest Claude
 Code version known to send it (`min_version`), plus the `baseline_version`
 this file's "Status" section names.
 

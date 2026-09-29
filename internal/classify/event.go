@@ -69,6 +69,9 @@ const (
 	TypeCommit               = "commit"
 	TypeStop                 = "stop"
 	TypeSessionEnd           = "session_end"
+	// TypePaused never carries Subagent: a pause is a fact about the main
+	// chain's turn (ADR-006 section 1).
+	TypePaused = "paused"
 	// TypeSubagentStart and TypeSubagentStop always carry Subagent and
 	// an empty payload (ADR-005 section 1).
 	TypeSubagentStart = "subagent_start"
@@ -188,4 +191,22 @@ const (
 // SessionEndPayload is the payload for TypeSessionEnd.
 type SessionEndPayload struct {
 	Reason string `json:"reason"`
+}
+
+// paused causes (ADR-006 section 1's `cause` enum). These seven are the
+// whole enum; Classify never sends anything else in PausedPayload.
+const (
+	CauseUsageLimit  = "usage_limit"
+	CauseLimitReset  = "limit_reset"
+	CauseBilling     = "billing"
+	CauseAuth        = "auth"
+	CauseOverloaded  = "overloaded"
+	CauseOutputLimit = "output_limit"
+	CauseAPIError    = "api_error"
+)
+
+// PausedPayload is the payload for TypePaused: one fixed cause code and
+// nothing else, so no error text can ride along (ADR-006 section 7).
+type PausedPayload struct {
+	Cause string `json:"cause"`
 }

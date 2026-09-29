@@ -21,8 +21,8 @@ import (
 // credential or config.json, so the pairing stays exactly as it was.
 //
 // An event is left alone when it already holds exactly this binary's
-// hook command, so a machine paired before the subagent hooks existed
-// sees only those two entries added. Any other event is merged as
+// hook command, so a machine paired before StopFailure or the subagent
+// hooks existed sees only those entries added. Any other event is merged as
 // "agentpulse pair" would merge it (BR-07): that also repoints an entry
 // left behind by an upgrade that moved the binary.
 func runHooksOnly(cmd *cobra.Command, yes bool) error {

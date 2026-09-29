@@ -34,6 +34,13 @@ func pairedCredStore() *fakeCredStore {
 // name the real, resolved path of whatever binary `go test` compiled.
 func writeAllEightHooksRegistered(t *testing.T) {
 	t.Helper()
+	writeBareHooksRegistered(t, claudehooks.BR08Events)
+}
+
+// writeBareHooksRegistered is writeAllEightHooksRegistered for exactly
+// events, e.g. the ten a machine paired before StopFailure holds.
+func writeBareHooksRegistered(t *testing.T, events []string) {
+	t.Helper()
 	path, err := defaultSettingsPath()
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +50,7 @@ func writeAllEightHooksRegistered(t *testing.T) {
 	}
 	var b strings.Builder
 	b.WriteString(`{"hooks":{`)
-	for i, event := range claudehooks.BR08Events {
+	for i, event := range events {
 		if i > 0 {
 			b.WriteString(",")
 		}
@@ -55,7 +62,7 @@ func writeAllEightHooksRegistered(t *testing.T) {
 	}
 }
 
-// writeHooksRegisteredAt writes ~/.claude/settings.json with all ten
+// writeHooksRegisteredAt writes ~/.claude/settings.json with all eleven
 // BR-08 events registered to hookCommand(binary), for P5-27's doctor
 // tests, which care about the exact registered path.
 func writeHooksRegisteredAt(t *testing.T, binary string) {
@@ -220,6 +227,41 @@ func TestRunDoctorHealthyExitsZero(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "PASS  settings-file") {
 		t.Errorf("output does not show settings-file PASS:\n%s", out.String())
+	}
+}
+
+// TestRunDoctorWarnsWhenPairedBeforeStopFailure is a scratch machine
+// paired before ADR-006: its settings hold the ten earlier events but not
+// StopFailure. Doctor still exits 0 and shows a WARN naming StopFailure
+// with the exact --hooks-only remedy line.
+func TestRunDoctorWarnsWhenPairedBeforeStopFailure(t *testing.T) {
+	setTestXDGDirs(t)
+	var ten []string
+	for _, e := range claudehooks.BR08Events {
+		if e != claudehooks.StopFailure {
+			ten = append(ten, e)
+		}
+	}
+	writeBareHooksRegistered(t, ten)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	_, out := testCmd("")
+	err := runDoctor(context.Background(), doctorDeps{
+		out: out, relayFlag: srv.URL, credStore: pairedCredStore(),
+	})
+	text := out.String()
+	if err != nil {
+		t.Errorf("runDoctor() = %v, want nil (a missing StopFailure is a WARN):\n%s", err, text)
+	}
+	if !strings.Contains(text, "WARN  settings-file") || !strings.Contains(text, "missing optional hooks: StopFailure") {
+		t.Errorf("output does not show the settings-file WARN naming StopFailure:\n%s", text)
+	}
+	if !strings.Contains(text, "Run `agentpulse pair --hooks-only` to add the missing hooks (keeps your pairing).") {
+		t.Errorf("output does not show the exact remedy line:\n%s", text)
 	}
 }
 

@@ -86,8 +86,8 @@ func describeClaudeVersionError(err error) string {
 // claudeVersionConsequence renders SPEC 7.4's degradation list in plain
 // words for exactly the events unsupported names, in the order SPEC 7.4
 // states them: no PermissionRequest, no PermissionRequest and no
-// Notification together, no SessionEnd, and no SubagentStart or
-// SubagentStop. Events other than these four (SessionStart,
+// Notification together, no SessionEnd, no SubagentStart or
+// SubagentStop, and no StopFailure. Events other than these (SessionStart,
 // UserPromptSubmit, PreToolUse, PostToolUse, Stop) carry no SPEC 7.4
 // consequence of their own, so they are only ever named in the Finding's
 // own event list, not here.
@@ -111,6 +111,9 @@ func claudeVersionConsequence(unsupported []string) string {
 	}
 	if has[claudehooks.SubagentStart] || has[claudehooks.SubagentStop] {
 		parts = append(parts, "subagents will show without precise start and stop")
+	}
+	if has[claudehooks.StopFailure] {
+		parts = append(parts, "usage-limit pauses will show as lost contact")
 	}
 	if len(parts) == 0 {
 		return "the bridge keeps working with less information from Claude Code"
