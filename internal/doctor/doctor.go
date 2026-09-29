@@ -29,6 +29,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -43,10 +44,12 @@ import (
 type Verdict string
 
 // The three verdicts BR-15 defines. There is no fourth "unknown" verdict
-// in this package: checks 1 and 3 can never determine enough to FAIL
-// (SPEC 7.4 treats an old or undetectable Claude Code as a degradation,
-// not a fault), so an inconclusive result is WARN with a Finding that
-// says why, never a separate verdict.
+// in this package: check 3 can never determine enough to FAIL (SPEC 7.4
+// treats an old or undetectable Claude Code as a degradation, not a
+// fault), so an inconclusive result there is WARN with a Finding that
+// says why, never a separate verdict. Check 1 can FAIL, but only for one
+// concrete condition — a registered hook binary that is missing or not
+// executable (P5-27) — never for an inconclusive one.
 const (
 	PASS Verdict = "PASS"
 	WARN Verdict = "WARN"
@@ -83,6 +86,13 @@ type Deps struct {
 	// LookPath resolves a program name on $PATH (exec.LookPath in
 	// production), for check 1's "is agentpulse on PATH at all".
 	LookPath func(name string) (string, error)
+	// StatBinary stats a registered hook's binary path (os.Stat in
+	// production), for check 1's P5-27 existence/executable FAIL. Nil
+	// skips that part of check 1 rather than reporting every registered
+	// path broken — a Deps built without it (a stale caller, or a test
+	// that only cares about check 1's other outcomes) degrades the same
+	// way an unset LookPath does elsewhere in this Deps.
+	StatBinary func(path string) (fs.FileInfo, error)
 	// InstalledCommands returns, per Claude Code hook event present in
 	// SettingsPath, the commands in that event this bridge owns
 	// (hooks.InstalledCommands(SettingsPath, hooks.NewOwner(BinaryPath))
@@ -131,7 +141,7 @@ const healthTimeout = 3 * time.Second
 // either twice.
 func RunChecks(ctx context.Context, d Deps) []Result {
 	installed, installedErr := callInstalledCommands(d.InstalledCommands)
-	binaryOnPath := checkBinaryOnPath(d.BinaryName, d.BinaryPath, d.LookPath, installed, installedErr)
+	binaryOnPath := checkBinaryOnPath(d.BinaryName, d.BinaryPath, d.LookPath, d.StatBinary, installed, installedErr)
 	settingsFile := checkSettingsFile(d.SettingsPath, installed, installedErr)
 
 	vctx, vcancel := context.WithTimeout(ctx, claudeVersionTimeout)

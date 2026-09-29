@@ -68,19 +68,72 @@ func shellQuoteIfNeeded(s string) string {
 	return s
 }
 
-// currentBinaryPath returns the absolute, symlink-resolved path to the
-// running binary, which is what gets written into settings.json's hook
-// command so Claude Code always invokes this exact build.
+// currentBinaryPath returns the path to write into settings.json's hook
+// command (P5-27): the absolute, symlink-resolved path to the running
+// binary, except when os.Executable() itself is a Homebrew `bin/` or
+// `opt/<formula>/bin/` symlink, in which case it returns that unresolved
+// invocation path instead. See stableBinaryPath for why.
 func currentBinaryPath() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return "", fmt.Errorf("finding the current binary: %w", err)
 	}
-	resolved, err := filepath.EvalSymlinks(exe)
+	return stableBinaryPath(exe)
+}
+
+// stableBinaryPath applies P5-27's rule to invocationPath, the path
+// os.Executable() reports before any symlink is followed. A Homebrew
+// install always runs through a symlink — `$(brew --prefix)/bin/agentpulse`
+// (or, if invoked that way, `$(brew --prefix)/opt/agentpulse/bin/agentpulse`)
+// — whose target is the versioned `.../Cellar/agentpulse/<version>/bin/agentpulse`
+// that `brew upgrade` deletes as soon as a new version is installed, which
+// is exactly the path a plain symlink-resolving currentBinaryPath used to
+// write into every hook: correct the instant it was written, and silently
+// broken after the next upgrade, since Homebrew relinks the symlink to the
+// new version but never rewrites ~/.claude/settings.json. Recognizing that
+// shape and keeping the symlink path instead means the hook keeps working
+// across an upgrade without anyone re-running `agentpulse pair`.
+//
+// Every other case — a `go install` binary, a plain copied binary, a
+// manual symlink to something other than a Cellar path — resolves to the
+// real file the same way it always did, because there is no Homebrew
+// relinking to rely on for those; if the file itself moves, doctor's
+// binary-on-path check (BR-15) is what catches it, and the remedy is
+// `agentpulse pair --hooks-only`.
+func stableBinaryPath(invocationPath string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(invocationPath)
 	if err != nil {
-		return "", fmt.Errorf("resolving %s: %w", exe, err)
+		return "", fmt.Errorf("resolving %s: %w", invocationPath, err)
+	}
+	if resolved != invocationPath && isHomebrewCellarPath(resolved, filepath.Base(invocationPath)) {
+		return invocationPath, nil
 	}
 	return resolved, nil
+}
+
+// isHomebrewCellarPath reports whether resolved has the exact shape
+// Homebrew gives a formula's installed binary,
+// ".../Cellar/<name>/<version>/bin/<name>", for the formula named name
+// (this program's own binary name, e.g. "agentpulse"). <version> is not
+// validated beyond being a single path component — Homebrew's own version
+// strings are not a fixed format — since the four surrounding, fixed
+// components ("Cellar", name twice, "bin") are already specific enough
+// that nothing else plausibly matches by accident.
+func isHomebrewCellarPath(resolved, name string) bool {
+	if name == "" || filepath.Base(resolved) != name {
+		return false
+	}
+	binDir := filepath.Dir(resolved)
+	if filepath.Base(binDir) != "bin" {
+		return false
+	}
+	versionDir := filepath.Dir(binDir)
+	formulaDir := filepath.Dir(versionDir)
+	if filepath.Base(formulaDir) != name {
+		return false
+	}
+	cellarDir := filepath.Dir(formulaDir)
+	return filepath.Base(cellarDir) == "Cellar"
 }
 
 // defaultSettingsPath is ~/.claude/settings.json, honoring $HOME so tests

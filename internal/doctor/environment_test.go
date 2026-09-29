@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"strings"
 	"testing"
+	"time"
 )
 
 func lookPathReturning(path string, err error) func(string) (string, error) {
@@ -14,26 +15,52 @@ func lookPathReturning(path string, err error) func(string) (string, error) {
 	}
 }
 
+// fakeFileInfo is a minimal fs.FileInfo stub for the stat-based part of
+// check 1: only Mode and IsDir are ever consulted.
+type fakeFileInfo struct {
+	mode  fs.FileMode
+	isDir bool
+}
+
+func (f fakeFileInfo) Name() string           { return "" }
+func (f fakeFileInfo) Size() int64            { return 0 }
+func (f fakeFileInfo) Mode() fs.FileMode      { return f.mode }
+func (f fakeFileInfo) ModTime() (t time.Time) { return t }
+func (f fakeFileInfo) IsDir() bool            { return f.isDir }
+func (f fakeFileInfo) Sys() any               { return nil }
+
+// statAlwaysExecutable is a stat stub reporting every path as a plain,
+// executable file — used by table cases that are not about P5-27's
+// existence check at all, so a fictitious path (e.g. "/x/agentpulse")
+// used to exercise some other branch does not trip it.
+func statAlwaysExecutable(string) (fs.FileInfo, error) {
+	return fakeFileInfo{mode: 0o755}, nil
+}
+
 func TestCheckBinaryOnPath(t *testing.T) {
 	notOnPath := errors.New("exec: \"agentpulse\": executable file not found in $PATH")
 
 	tests := []struct {
 		name          string
 		lookPath      func(string) (string, error)
+		stat          func(string) (fs.FileInfo, error)
 		installed     map[string][]string
 		installedErr  error
 		wantVerdict   Verdict
 		wantInFinding string
+		wantRemedy    string
 	}{
 		{
 			name:          "absent from PATH",
 			lookPath:      lookPathReturning("", notOnPath),
+			stat:          statAlwaysExecutable,
 			wantVerdict:   WARN,
 			wantInFinding: "agentpulse",
 		},
 		{
 			name:     "present and matching",
 			lookPath: lookPathReturning("/opt/agentpulse/agentpulse", nil),
+			stat:     statAlwaysExecutable,
 			installed: map[string][]string{
 				"Stop": {"/opt/agentpulse/agentpulse hook"},
 			},
@@ -43,6 +70,7 @@ func TestCheckBinaryOnPath(t *testing.T) {
 		{
 			name:     "registered command points elsewhere",
 			lookPath: lookPathReturning("/opt/agentpulse/agentpulse", nil),
+			stat:     statAlwaysExecutable,
 			installed: map[string][]string{
 				"Stop": {"/old/homebrew/path/agentpulse hook"},
 			},
@@ -52,19 +80,57 @@ func TestCheckBinaryOnPath(t *testing.T) {
 		{
 			name:        "nothing registered at all",
 			lookPath:    lookPathReturning("/opt/agentpulse/agentpulse", nil),
+			stat:        statAlwaysExecutable,
 			wantVerdict: WARN,
 		},
 		{
 			name:          "settings unreadable",
 			lookPath:      lookPathReturning("/opt/agentpulse/agentpulse", nil),
+			stat:          statAlwaysExecutable,
 			installedErr:  errors.New("boom"),
 			wantVerdict:   WARN,
 			wantInFinding: "could not compare",
 		},
+		{
+			// P5-27: the exact condition a Homebrew upgrade leaves
+			// behind — the registered path is the old, now-deleted
+			// Cellar path.
+			name:     "registered binary does not exist (Homebrew upgrade)",
+			lookPath: lookPathReturning("/opt/homebrew/bin/agentpulse", nil),
+			stat:     func(string) (fs.FileInfo, error) { return nil, fs.ErrNotExist },
+			installed: map[string][]string{
+				"Stop": {"/opt/homebrew/Cellar/agentpulse/1.2.0/bin/agentpulse hook"},
+			},
+			wantVerdict:   FAIL,
+			wantInFinding: "/opt/homebrew/Cellar/agentpulse/1.2.0/bin/agentpulse does not exist",
+			wantRemedy:    "agentpulse pair --hooks-only",
+		},
+		{
+			name:     "registered binary is not executable",
+			lookPath: lookPathReturning("/opt/agentpulse/agentpulse", nil),
+			stat:     func(string) (fs.FileInfo, error) { return fakeFileInfo{mode: 0o644}, nil },
+			installed: map[string][]string{
+				"Stop": {"/opt/agentpulse/agentpulse hook"},
+			},
+			wantVerdict:   FAIL,
+			wantInFinding: "is not executable",
+			wantRemedy:    "agentpulse pair --hooks-only",
+		},
+		{
+			// stat unset entirely (Deps.StatBinary not wired up): the
+			// existence check is skipped, not treated as broken.
+			name:     "no stat function wired up",
+			lookPath: lookPathReturning("/opt/agentpulse/agentpulse", nil),
+			stat:     nil,
+			installed: map[string][]string{
+				"Stop": {"/opt/agentpulse/agentpulse hook"},
+			},
+			wantVerdict: PASS,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := checkBinaryOnPath("agentpulse", "", tt.lookPath, tt.installed, tt.installedErr)
+			got := checkBinaryOnPath("agentpulse", "", tt.lookPath, tt.stat, tt.installed, tt.installedErr)
 			if got.Verdict != tt.wantVerdict {
 				t.Errorf("Verdict = %s, want %s (finding: %q)", got.Verdict, tt.wantVerdict, got.Finding)
 			}
@@ -74,23 +140,25 @@ func TestCheckBinaryOnPath(t *testing.T) {
 			if tt.wantInFinding != "" && !strings.Contains(got.Finding, tt.wantInFinding) {
 				t.Errorf("Finding = %q, want it to contain %q", got.Finding, tt.wantInFinding)
 			}
+			if tt.wantRemedy != "" && !strings.Contains(got.Remedy, tt.wantRemedy) {
+				t.Errorf("Remedy = %q, want it to contain %q", got.Remedy, tt.wantRemedy)
+			}
 		})
 	}
 }
 
-func TestCheckBinaryOnPathNeverFails(t *testing.T) {
-	// Documentation-as-test: check 1 (SPEC 7.4's "keeps working with less
-	// convenience" case) has no path to FAIL, whatever combination of
-	// inputs it's given.
+func TestCheckBinaryOnPathNeverFailsWithoutAStatFunction(t *testing.T) {
+	// Documentation-as-test: a nil stat (Deps.StatBinary unset) leaves
+	// check 1 exactly as before P5-27 — it can only PASS or WARN.
 	cases := []Result{
-		checkBinaryOnPath("agentpulse", "", lookPathReturning("", errors.New("no")), nil, nil),
-		checkBinaryOnPath("agentpulse", "", lookPathReturning("/x/agentpulse", nil), nil, errors.New("boom")),
-		checkBinaryOnPath("agentpulse", "", lookPathReturning("/x/agentpulse", nil), map[string][]string{"Stop": {"/y/agentpulse hook"}}, nil),
-		checkBinaryOnPath("agentpulse", "", lookPathReturning("/x/agentpulse", nil), map[string][]string{"Stop": {"/x/agentpulse hook"}}, nil),
+		checkBinaryOnPath("agentpulse", "", lookPathReturning("", errors.New("no")), nil, nil, nil),
+		checkBinaryOnPath("agentpulse", "", lookPathReturning("/x/agentpulse", nil), nil, nil, errors.New("boom")),
+		checkBinaryOnPath("agentpulse", "", lookPathReturning("/x/agentpulse", nil), nil, map[string][]string{"Stop": {"/y/agentpulse hook"}}, nil),
+		checkBinaryOnPath("agentpulse", "", lookPathReturning("/x/agentpulse", nil), nil, map[string][]string{"Stop": {"/x/agentpulse hook"}}, nil),
 	}
 	for _, r := range cases {
 		if r.Verdict == FAIL {
-			t.Errorf("checkBinaryOnPath returned FAIL (finding: %q); check 1 must never FAIL", r.Finding)
+			t.Errorf("checkBinaryOnPath returned FAIL (finding: %q) with no stat function wired up", r.Finding)
 		}
 	}
 }

@@ -84,15 +84,79 @@ func registeredBinaries(installed map[string][]string) []string {
 	return out
 }
 
-// checkBinaryOnPath is BR-15 check 1. It can only PASS or WARN, never
-// FAIL: a missing PATH entry or a stale registered path is exactly the
-// "keeps working with less convenience" case, not a broken bridge — the
-// bridge still runs Claude Code's hooks via whatever absolute path is in
+// brokenRegisteredBinaries returns, in claudehooks.BR08Events order, one
+// description per distinct registered hook binary path (not symlink-
+// resolved — the point is to stat the exact path Claude Code would run)
+// that does not exist, is a directory, or lacks any executable bit, e.g.
+// "/opt/homebrew/Cellar/agentpulse/1.2.0/bin/agentpulse does not exist".
+// A bare command name registered without a path (BR-09's second
+// ownership clause, e.g. plain "agentpulse" on PATH) is never reported
+// here: it is not a path this function can stat meaningfully, and check
+// 1's own PATH lookup already covers whether "agentpulse" resolves to
+// anything. stat == nil (no Deps.StatBinary wired up) skips this check
+// entirely rather than reporting every registered path broken.
+func brokenRegisteredBinaries(stat func(string) (fs.FileInfo, error), installed map[string][]string) []string {
+	if stat == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, event := range claudehooks.BR08Events {
+		for _, command := range installed[event] {
+			path := commandBinary(command)
+			if !filepath.IsAbs(path) || seen[path] {
+				continue
+			}
+			seen[path] = true
+			if reason, bad := binaryProblem(stat, path); bad {
+				out = append(out, fmt.Sprintf("%s %s", path, reason))
+			}
+		}
+	}
+	return out
+}
+
+// binaryProblem reports why path is unusable as a hook binary, or
+// bad == false when it is a plain, executable file.
+func binaryProblem(stat func(string) (fs.FileInfo, error), path string) (reason string, bad bool) {
+	info, err := stat(path)
+	if err != nil {
+		return "does not exist", true
+	}
+	if info.IsDir() {
+		return "is a directory, not an executable file", true
+	}
+	if info.Mode()&0o111 == 0 {
+		return "is not executable", true
+	}
+	return "", false
+}
+
+// checkBinaryOnPath is BR-15 check 1. It FAILs when a registered hook's
+// binary path does not exist or is not executable (P5-27): that is
+// exactly what a Homebrew upgrade leaves behind, since `brew upgrade`
+// deletes the old versioned Cellar path as soon as the new one is
+// linked, and a hook pointing at a deleted file cannot run at all — that
+// is a broken bridge, not a degradation, so it outranks every other
+// outcome this check can report. Every other outcome — no PATH entry, or
+// a registered path that exists and runs but differs from the copy of
+// the bridge currently running "doctor" — can only WARN: the bridge
+// still runs Claude Code's hooks via whatever absolute path is in
 // settings.json regardless of what a shell's $PATH resolves "agentpulse"
 // to.
-func checkBinaryOnPath(binaryName, runningBinaryPath string, lookPath func(string) (string, error), installed map[string][]string, installedErr error) Result {
+func checkBinaryOnPath(binaryName, runningBinaryPath string, lookPath func(string) (string, error), stat func(string) (fs.FileInfo, error), installed map[string][]string, installedErr error) Result {
 	if lookPath == nil {
 		lookPath = func(string) (string, error) { return "", errors.New("no PATH lookup available") }
+	}
+
+	if installedErr == nil {
+		if broken := brokenRegisteredBinaries(stat, installed); len(broken) > 0 {
+			return Result{
+				Name: "binary-on-path", Verdict: FAIL,
+				Finding: fmt.Sprintf("registered hook binary %s", strings.Join(broken, "; ")),
+				Remedy:  "run `agentpulse pair --hooks-only`",
+			}
+		}
 	}
 
 	found, lookErr := lookPath(binaryName)

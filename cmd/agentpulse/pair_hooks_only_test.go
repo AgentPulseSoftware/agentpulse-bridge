@@ -177,6 +177,78 @@ func TestHooksOnlyOnAnUnpairedMachine(t *testing.T) {
 	}
 }
 
+// TestHooksOnlyRepointsAStaleCellarPath is P5-27's Homebrew-upgrade case:
+// a machine paired against a versioned Cellar path a `brew upgrade` since
+// deleted. hooks.Owner still recognizes that stale path as this bridge's
+// own (any absolute path whose base name is "agentpulse"), so
+// --hooks-only repoints every entry to the currently running binary's
+// path rather than leaving it alone or treating it as someone else's
+// hook.
+func TestHooksOnlyRepointsAStaleCellarPath(t *testing.T) {
+	home := pairingHome(t)
+	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("--hooks-only contacted the relay: %s %s", r.Method, r.URL.Path)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(relay.Close)
+	t.Setenv("AGENTPULSE_RELAY", relay.URL)
+
+	if err := config.Save(xdgpaths.ConfigPath(), config.Config{BridgeID: "brg_existing", DeviceName: "Sam's iPhone"}); err != nil {
+		t.Fatal(err)
+	}
+	const staleCellarPath = "/opt/homebrew/Cellar/agentpulse/1.0.0/bin/agentpulse"
+	type spec struct {
+		Type    string `json:"type"`
+		Command string `json:"command"`
+		Timeout int    `json:"timeout,omitempty"`
+	}
+	type group struct {
+		Matcher string `json:"matcher"`
+		Hooks   []spec `json:"hooks"`
+	}
+	byEvent := map[string][]group{}
+	for _, event := range claudehooks.BR08Events {
+		byEvent[event] = []group{{Hooks: []spec{{"command", hookCommand(staleCellarPath), 10}}}}
+	}
+	before, err := json.MarshalIndent(map[string]any{"hooks": byEvent}, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settingsPath, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runPairCmd(t, "", "--hooks-only", "--yes")
+	if err != nil {
+		t.Fatalf("pair --hooks-only --yes: %v\n%s", err, out)
+	}
+
+	binary, err := currentBinaryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hooksByEvent := settingsHooks(t, settingsPath)
+	for _, event := range claudehooks.BR08Events {
+		g := hooksByEvent[event]
+		if len(g) != 1 || len(g[0].Hooks) != 1 {
+			t.Fatalf("%s = %+v, want exactly one group with one command", event, g)
+		}
+		if got := g[0].Hooks[0].Command; got != hookCommand(binary) {
+			t.Errorf("%s command = %q, want the repointed %q", event, got, hookCommand(binary))
+		}
+		if strings.Contains(g[0].Hooks[0].Command, staleCellarPath) {
+			t.Errorf("%s still names the deleted Cellar path %q", event, staleCellarPath)
+		}
+	}
+	if !strings.Contains(out, "Done. All") {
+		t.Errorf("output = %q, want the completion message", out)
+	}
+}
+
 func TestHooksOnlyRejectsPairingFlags(t *testing.T) {
 	pairingHome(t)
 	for _, args := range [][]string{

@@ -3,6 +3,7 @@ package doctor
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -186,9 +187,12 @@ func TestCheckBridgeVersionUnpairedReasonIsExactMessage(t *testing.T) {
 func TestEveryNonPassResultHasARemedy(t *testing.T) {
 	now := time.Now()
 	results := []Result{
-		checkBinaryOnPath("agentpulse", "", func(string) (string, error) { return "", errors.New("not found") }, nil, nil),
-		checkBinaryOnPath("agentpulse", "", func(string) (string, error) { return "/opt/agentpulse", nil }, nil, errors.New("boom")),
-		checkBinaryOnPath("agentpulse", "", func(string) (string, error) { return "/opt/agentpulse", nil }, map[string][]string{"Stop": {"/elsewhere/agentpulse hook"}}, nil),
+		checkBinaryOnPath("agentpulse", "", func(string) (string, error) { return "", errors.New("not found") }, nil, nil, nil),
+		checkBinaryOnPath("agentpulse", "", func(string) (string, error) { return "/opt/agentpulse", nil }, nil, nil, errors.New("boom")),
+		checkBinaryOnPath("agentpulse", "", func(string) (string, error) { return "/opt/agentpulse", nil }, nil, map[string][]string{"Stop": {"/elsewhere/agentpulse hook"}}, nil),
+		checkBinaryOnPath("agentpulse", "", func(string) (string, error) { return "/opt/agentpulse", nil },
+			func(string) (fs.FileInfo, error) { return nil, fs.ErrNotExist },
+			map[string][]string{"Stop": {"/opt/agentpulse hook"}}, nil),
 		checkSettingsFile("", nil, nil),
 		checkSettingsFile("/x/settings.json", nil, errors.New("boom")),
 		checkSettingsFile("/x/settings.json", map[string][]string{"Stop": {"x hook"}}, nil),
