@@ -117,11 +117,13 @@ The relay stores events for a bounded window so the app can read them; what
 it does with them beyond that is documented with the relay, not here.
 
 When the bridge has fallen behind (the Mac slept, the network was down, or
-the relay asked it to slow down), it does not replay hours of history: it
-sends only the events that define each session's current state, plus every
-`paused`, `pr_created` and `commit`, so your phone catches up in one or two
-batches (`internal/coalesce` says exactly which events survive). It never
-edits an event or sends anything it did not spool.
+the relay asked it to slow down), it sends what it spooled in the order it
+happened, minus one kind of event: an `activity` event more than ten
+minutes old that is not the last event of its session or helper. Every
+other event is sent, so the relay still sees every finished turn,
+question, test result, helper start and stop, and pause
+(`internal/coalesce`). It never edits an event or sends anything it did
+not spool.
 
 ## The privacy model
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -216,22 +217,26 @@ func runFlush(deps flushDeps) {
 		batch = stripSubagents(batch)
 	}
 
-	// Card P5-26: a backlog is sent as the events that define each
-	// session's current state, not as its whole history, so the phone
-	// catches up in a batch or two. A live spool is left as it is.
-	if coalesced := coalesce.Backlog(batch, deps.now()); len(coalesced) != len(batch) {
-		debugf(deps.stderr, deps.debug, "agentpulse flush: coalesced a backlog of %d events to %d", len(batch), len(coalesced))
-		batch = coalesced
+	// Card P5-26 (D81): a backlog drops its stale activity events and
+	// keeps everything else, in order. A live spool has none to drop.
+	if kept := coalesce.DropStaleActivity(batch, deps.now()); len(kept) != len(batch) {
+		debugf(deps.stderr, deps.debug, "agentpulse flush: dropped %d stale activity events from a backlog of %d", len(batch)-len(kept), len(batch))
+		batch = kept
 	}
 
 	// ERR-05: while a 429's Retry-After runs, no flush run contacts the
 	// relay. Every hook still starts a flush, so without this each one
 	// would ask again and be refused again. The spool keeps what it has,
-	// coalesced above so it stays small.
+	// less the stale activity dropped above, and LastFlush says why
+	// nothing was sent, so "agentpulse doctor" is current during the wait.
 	if rateLimited(fstate, deps.now()) {
 		debugf(deps.stderr, deps.debug, "agentpulse flush: rate limited until %s, not sending", fstate.RateLimitedUntil)
 		if err := commit(batch); err != nil {
 			debugf(deps.stderr, deps.debug, "agentpulse flush: committing spool: %v", err)
+		}
+		fstate.LastFlush = &state.LastFlush{TS: deps.now().UTC().Format(time.RFC3339), Outcome: state.OutcomeRateLimited, HTTPStatus: http.StatusTooManyRequests}
+		if err := state.Save(xdgpaths.StatePath(), fstate); err != nil {
+			debugf(deps.stderr, deps.debug, "agentpulse flush: saving state: %v", err)
 		}
 		return
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -77,12 +78,11 @@ func (r *recordingRelay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"accepted": len(body.Events)})
 }
 
-// TestRunFlushSendsA500EventBacklogInTwoRequests is card P5-26's flush
-// test: a full spool reaches the relay in at most two requests, keeps
-// spool order, and includes every session's latest event and the
-// trailing pause. That the relay ends in the same state as after a full
-// replay is shown in internal/coalesce's tests.
-func TestRunFlushSendsA500EventBacklogInTwoRequests(t *testing.T) {
+// TestRunFlushSendsA500EventBacklogWithoutStaleActivity is card P5-26's
+// flush test under D81: a full spool reaches the relay in spool order,
+// within the batch limit, with every event except the stale activity
+// events that are not their session's last.
+func TestRunFlushSendsA500EventBacklogWithoutStaleActivity(t *testing.T) {
 	setTestXDGDirs(t)
 	withFastBackoff(t)
 	pairedConfig(t, "")
@@ -100,9 +100,6 @@ func TestRunFlushSendsA500EventBacklogInTwoRequests(t *testing.T) {
 	if got := remainingSpool(t); len(got) != 0 {
 		t.Fatalf("%d events left in the spool, want none", len(got))
 	}
-	if len(rr.requests) == 0 || len(rr.requests) > 2 {
-		t.Fatalf("backlog sent in %d requests, want one or two", len(rr.requests))
-	}
 	var sent []string
 	for _, req := range rr.requests {
 		if len(req) > relay.MaxEventsPerChunk {
@@ -113,47 +110,28 @@ func TestRunFlushSendsA500EventBacklogInTwoRequests(t *testing.T) {
 		}
 	}
 
-	pos := map[string]int{}
-	for i, l := range backlog {
-		pos[l] = i
-	}
 	last := map[string]string{}
 	for _, l := range backlog {
-		var e struct {
-			SessionID string `json:"session_id"`
-		}
-		_ = json.Unmarshal([]byte(l), &e)
-		last[e.SessionID] = l
+		last[eventField(l, "session_id")] = l
 	}
-	prev := -1
-	for _, s := range sent {
-		i, ok := pos[s]
-		if !ok {
-			t.Fatalf("sent an event that was not in the spool: %s", s)
-		}
-		if i <= prev {
-			t.Errorf("events sent out of spool order")
-		}
-		prev = i
-	}
-	for id, l := range last {
-		if !containsString(sent, l) {
-			t.Errorf("session %s: its latest event was not sent", id)
+	var want []string
+	for _, l := range backlog {
+		if eventField(l, "type") != "activity" || last[eventField(l, "session_id")] == l {
+			want = append(want, l)
 		}
 	}
-	if !containsString(sent, backlog[len(backlog)-1]) {
-		t.Error("the trailing paused event was not sent")
+	if !slices.Equal(sent, want) {
+		t.Errorf("sent %d events, want the %d that are not stale activity, in spool order", len(sent), len(want))
 	}
 	t.Logf("500 spooled events sent as %d in %d requests", len(sent), len(rr.requests))
 }
 
-func containsString(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
+// eventField is one top-level string field of a spooled event.
+func eventField(line, name string) string {
+	var e map[string]any
+	_ = json.Unmarshal([]byte(line), &e)
+	s, _ := e[name].(string)
+	return s
 }
 
 // countingRelay answers every request with a 429 carrying retryAfter (no
@@ -255,9 +233,9 @@ func TestRunFlushRateLimitNeverHotLoops(t *testing.T) {
 }
 
 // TestRunFlushWhileRateLimitedStillCompactsTheSpool checks that a run
-// held back by a Retry-After still coalesces the backlog in place, so the
-// spool does not reach its 500-event cap and evict a session's latest
-// state while it waits.
+// held back by a Retry-After still drops the backlog's stale activity in
+// place, so the spool is further from its 500-event cap while it waits,
+// and records the wait in LastFlush for "agentpulse doctor".
 func TestRunFlushWhileRateLimitedStillCompactsTheSpool(t *testing.T) {
 	setTestXDGDirs(t)
 	pairedConfig(t, "")
@@ -279,11 +257,25 @@ func TestRunFlushWhileRateLimitedStillCompactsTheSpool(t *testing.T) {
 		t.Errorf("made %d requests while rate limited, want none", *requests)
 	}
 	left := remainingSpool(t)
-	if len(left) == 0 || len(left) > 2*relay.MaxEventsPerChunk {
-		t.Errorf("spool holds %d events, want the backlog coalesced to at most two batches", len(left))
+	nonActivity := 0
+	for _, l := range backlog {
+		if eventField(l, "type") != "activity" {
+			nonActivity++
+		}
+	}
+	if len(left) >= len(backlog) || len(left) < nonActivity {
+		t.Errorf("spool holds %d events, want fewer than %d and at least the %d that are not activity", len(left), len(backlog), nonActivity)
 	}
 	if left[len(left)-1] != backlog[len(backlog)-1] {
 		t.Error("the trailing paused event is not the spool's last")
+	}
+	st = state.Load(xdgpaths.StatePath())
+	want := state.LastFlush{TS: flushNow.Format(time.RFC3339), Outcome: state.OutcomeRateLimited, HTTPStatus: http.StatusTooManyRequests}
+	if st.LastFlush == nil || *st.LastFlush != want {
+		t.Errorf("LastFlush = %+v, want %+v", st.LastFlush, want)
+	}
+	if st.RateLimitedUntil != flushNow.Add(time.Minute).Format(time.RFC3339) {
+		t.Errorf("RateLimitedUntil = %q, want it unchanged", st.RateLimitedUntil)
 	}
 }
 
