@@ -56,10 +56,14 @@ func computeFinalState(events []actualEvent) string {
 			}
 		case "needs_input":
 			state = "needs_you"
-		case "input_resolved":
-			state = "working"
-		case "pr_created", "commit":
-			// Unchanged state; history only (SPEC 7.3).
+		case "input_resolved", "pr_created", "commit":
+			// SPEC 7.3: out of needs_you these clear Needs You to working
+			// (for pr_created and commit by 7.2's clearing rule); from any
+			// other state they leave it unchanged, history only. That
+			// includes paused (ADR-006 section 3).
+			if state == "needs_you" {
+				state = "working"
+			}
 		case "stop":
 			state = "done"
 		case "paused":

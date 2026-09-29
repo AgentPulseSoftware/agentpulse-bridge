@@ -164,6 +164,10 @@ unrecognised `error` value, appears in an emitted event.
   `paused` with cause `usage_limit`.
 - `stopfailure-auto-resume`: the same, then `quota_auto_resume_fired`
   (nothing sent), the continuation prompt, an edit and a normal `Stop`.
+  The continuation is sent as `prompt_submitted` without a `task_label`,
+  but only because every replay runs with task labels off; this scenario
+  does not show BR-17's rule that a continuation never becomes the label.
+  That rule is tested in `internal/classify/paused_test.go`.
 - `stopfailure-stale-reset`: the same pause, then
   `quota_auto_resume_stale`, sent as `paused` with cause `limit_reset`.
 - `stopfailure-unknown-error`: an invented `error` value, sent as cause
