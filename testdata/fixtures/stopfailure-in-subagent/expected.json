@@ -1,0 +1,85 @@
+{
+  "events": [
+    {
+      "type": "session_start",
+      "payload": {
+        "agent": "claude-code"
+      }
+    },
+    {
+      "type": "prompt_submitted",
+      "payload": {}
+    },
+    {
+      "type": "activity",
+      "payload": {
+        "category": "other"
+      }
+    },
+    {
+      "type": "activity",
+      "payload": {
+        "category": "read"
+      }
+    },
+    {
+      "type": "paused",
+      "payload": {
+        "cause": "usage_limit"
+      }
+    }
+  ],
+  "subagent_events": [
+    {
+      "type": "session_start",
+      "payload": {
+        "agent": "claude-code"
+      }
+    },
+    {
+      "type": "prompt_submitted",
+      "payload": {}
+    },
+    {
+      "type": "activity",
+      "payload": {
+        "category": "other"
+      }
+    },
+    {
+      "type": "subagent_start",
+      "payload": {},
+      "subagent": {
+        "id": "3a1f0d3f34eb433f",
+        "type": "reviewer"
+      }
+    },
+    {
+      "type": "activity",
+      "payload": {
+        "category": "read"
+      },
+      "subagent": {
+        "id": "3a1f0d3f34eb433f",
+        "type": "reviewer"
+      }
+    },
+    {
+      "type": "subagent_stop",
+      "payload": {},
+      "subagent": {
+        "id": "3a1f0d3f34eb433f",
+        "type": "reviewer"
+      }
+    },
+    {
+      "type": "paused",
+      "payload": {
+        "cause": "usage_limit"
+      }
+    }
+  ],
+  "final_state": "paused",
+  "recap_ok": false,
+  "synthetic": true
+}

@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","session_id":"sess_stopfailure_stale_reset","cwd":"/scrubbed/e3e3e3e3","transcript_path":"/scrubbed/transcript.jsonl","tool_name":"Read","tool_use_id":"toolu_01","tool_input":{"file_path":"/scrubbed/f1.go"}}

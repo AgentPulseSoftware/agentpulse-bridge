@@ -12,7 +12,12 @@ import (
 // transcript_path values", enforced (per BR-19) "by the event type
 // definitions (section 10.1), which have no fields that could carry them".
 // agent_id and agent_transcript_path, which subagent hooks carry, join
-// them (card P5-18): only a one-way hash of agent_id is ever sent.
+// them (card P5-18): only a one-way hash of agent_id is ever sent. So do
+// StopFailure's error, error_details and last_assistant_message and
+// Notification's message (ADR-006 section 7): only a fixed cause code
+// derived from error is ever sent. (Notification's title is not listed
+// only because "title" is also a JSON Schema keyword the schema file
+// itself uses; no Go type here has a Title field.)
 //
 // TestEventStructHasNoForbiddenFields below reflects over the payload
 // types eventAndPayloadTypes() names and checks each field's name and json
@@ -34,6 +39,7 @@ import (
 var forbiddenFieldNames = []string{
 	"cwd", "prompt", "tool_input", "tool_response", "transcript_path",
 	"agent_id", "agent_transcript_path",
+	"error", "error_details", "last_assistant_message", "message",
 }
 
 // eventAndPayloadTypes lists Event and every payload type defined in
@@ -56,6 +62,7 @@ func eventAndPayloadTypes() []reflect.Type {
 		reflect.TypeOf(EmptyPayload{}),
 		reflect.TypeOf(PRCreatedPayload{}),
 		reflect.TypeOf(SessionEndPayload{}),
+		reflect.TypeOf(PausedPayload{}),
 		reflect.TypeOf(Subagent{}),
 	}
 }

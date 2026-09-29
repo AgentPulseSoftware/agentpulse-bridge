@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","session_id":"sess_stopfailure_unknown_error","cwd":"/scrubbed/e4e4e4e4","transcript_path":"/scrubbed/transcript.jsonl","tool_name":"Bash","tool_use_id":"toolu_01","tool_input":{"command":"ls","description":"scrubbed (10 chars)"}}

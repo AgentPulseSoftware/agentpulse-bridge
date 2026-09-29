@@ -1,0 +1,1 @@
+{"hook_event_name":"Notification","session_id":"sess_stopfailure_auto_resume","cwd":"/scrubbed/e2e2e2e2","transcript_path":"/scrubbed/transcript.jsonl","message":"Your usage limit reset. The build broke while editing the payment module. /Users/someone/secret-project/main.go","title":"The build broke while editing the payment module.","notification_type":"quota_auto_resume_fired"}

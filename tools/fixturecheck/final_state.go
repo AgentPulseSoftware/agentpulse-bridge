@@ -7,8 +7,8 @@ package main
 // written from the same spec section independently.
 //
 // Only the event-driven rows of SPEC 7.3's table are modeled: idle,
-// working, reading, fixing, testing, needs_you, and done, plus the
-// session_end reason mapping. The table's time-based rows (state changes
+// working, reading, fixing, testing, needs_you, done, and paused
+// (ADR-006 section 3), plus the session_end reason mapping. The table's time-based rows (state changes
 // triggered purely by elapsed wall-clock time) do not apply here: a
 // fixture replay has no meaningful elapsed time between events, so those
 // rows would never fire during one run of "make fixtures" regardless.
@@ -62,6 +62,10 @@ func computeFinalState(events []actualEvent) string {
 			// Unchanged state; history only (SPEC 7.3).
 		case "stop":
 			state = "done"
+		case "paused":
+			// ADR-006 section 3. paused is not an active state, so a
+			// session_end after it lands on "ended" below.
+			state = "paused"
 		case "session_end":
 			reason, _ := ev.Payload["reason"].(string)
 			switch reason {
