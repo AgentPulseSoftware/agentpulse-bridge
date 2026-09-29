@@ -24,9 +24,9 @@ type event struct {
 	kind         string // verification_* and needs_input
 	runner       string
 	outcome      string
-	passed       int // -1 when absent
-	failed       int // -1 when absent
-	total        int // -1 when absent
+	passed       int     // -1 when absent
+	failed       int     // -1 when absent
+	total        int     // -1 when absent
 	toolCategory string  // needs_input
 	taskLabel    *string // prompt_submitted
 	reason       string  // session_end

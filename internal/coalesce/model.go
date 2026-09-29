@@ -262,7 +262,7 @@ func transition(before agentState, e *event, at int64) agentState {
 	case classify.TypePromptSubmitted:
 		// ADR-006 section 3: a continuation without a label keeps the
 		// stored one.
-		if !(s.state == "paused" && e.taskLabel == nil) {
+		if s.state != "paused" || e.taskLabel != nil {
 			s.hasTaskLabel = e.taskLabel != nil
 			s.taskLabel = ""
 			if e.taskLabel != nil {
