@@ -152,10 +152,10 @@ func TestUnpairRemovesEverythingItOwns(t *testing.T) {
 	}
 }
 
-// TestUnpairRemovesAllTenHooks checks BR-09 per event, including the two
-// subagent hooks: every entry pair registered goes, and the other tool's
-// Stop hook stays.
-func TestUnpairRemovesAllTenHooks(t *testing.T) {
+// TestUnpairRemovesAllElevenHooks checks BR-09 per event, including
+// StopFailure and the two subagent hooks: every entry pair registered goes,
+// and the other tool's Stop hook stays.
+func TestUnpairRemovesAllElevenHooks(t *testing.T) {
 	home, store := pairedMachine(t)
 	settingsPath := filepath.Join(home, ".claude", "settings.json")
 	binary, err := currentBinaryPath()

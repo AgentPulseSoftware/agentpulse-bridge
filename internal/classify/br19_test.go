@@ -40,6 +40,7 @@ var forbiddenFieldNames = []string{
 	"cwd", "prompt", "tool_input", "tool_response", "transcript_path",
 	"agent_id", "agent_transcript_path",
 	"error", "error_details", "last_assistant_message", "message",
+	"notification_type",
 }
 
 // eventAndPayloadTypes lists Event and every payload type defined in

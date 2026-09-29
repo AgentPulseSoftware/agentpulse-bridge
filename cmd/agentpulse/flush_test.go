@@ -135,9 +135,10 @@ func testFlushDeps(srv *httptest.Server, budget time.Duration) flushDeps {
 // every retry step doesn't need seconds of real wall-clock time.
 func withFastBackoff(t *testing.T) {
 	t.Helper()
-	orig := backoffSchedule
+	orig, origMin := backoffSchedule, minRateLimitWait
 	backoffSchedule = []time.Duration{time.Millisecond, 2 * time.Millisecond, 4 * time.Millisecond}
-	t.Cleanup(func() { backoffSchedule = orig })
+	minRateLimitWait = time.Millisecond
+	t.Cleanup(func() { backoffSchedule, minRateLimitWait = orig, origMin })
 }
 
 func TestRunFlushSuccessDrainsSpool(t *testing.T) {

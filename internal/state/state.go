@@ -61,6 +61,12 @@ type State struct {
 	// classifies subagent hooks exactly as before subagents were
 	// recognized until this time has passed.
 	SubagentsOffUntil string `json:"subagents_off_until,omitempty"`
+
+	// RateLimitedUntil (RFC 3339 UTC) is ERR-05's Retry-After, written by
+	// "agentpulse flush" when the relay answered 429 and it could not wait
+	// the time out inside its own budget. Until then no flush run contacts
+	// the relay (card P5-26).
+	RateLimitedUntil string `json:"rate_limited_until,omitempty"`
 }
 
 // Load reads state.json at path, tolerantly: a missing or unparseable

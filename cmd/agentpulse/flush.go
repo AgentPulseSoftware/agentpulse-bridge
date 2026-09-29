@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/agentpulsesoftware/agentpulse-bridge/internal/coalesce"
 	"github.com/agentpulsesoftware/agentpulse-bridge/internal/config"
 	"github.com/agentpulsesoftware/agentpulse-bridge/internal/cred"
 	"github.com/agentpulsesoftware/agentpulse-bridge/internal/lockfile"
@@ -49,6 +51,21 @@ var backoffSchedule = []time.Duration{1 * time.Second, 2 * time.Second, 4 * time
 // misbehaving relay that always answers 429 with a tiny delay — the 5
 // second budget already bounds real runs long before this would matter.
 const maxRateLimitRetries = 5
+
+// ERR-05's Retry-After, bounded so that no answer from the relay can make
+// the bridge send in a tight loop or fall silent for long (card P5-26).
+// minRateLimitWait is the shortest wait honored, so "Retry-After: 0" is
+// not an invitation to resend at once; it is a var only so tests can
+// shrink it. rateLimitFallbackWait applies when a 429 has no usable
+// Retry-After. maxRateLimitWait caps the wait at the relay's lost-contact
+// window: past that the phone shows lost contact anyway, and one request
+// every ten minutes is no load.
+var minRateLimitWait = 1 * time.Second
+
+const (
+	rateLimitFallbackWait = 30 * time.Second
+	maxRateLimitWait      = 10 * time.Minute
+)
 
 // defaultRelayBaseURL is the compiled-in production relay host (SPEC
 // 11.5). It can be overridden with --relay or AGENTPULSE_RELAY, which is
@@ -199,6 +216,32 @@ func runFlush(deps flushDeps) {
 		// Events spooled before the pause began still carry the field.
 		batch = stripSubagents(batch)
 	}
+
+	// Card P5-26 (D81): a backlog drops its stale activity events and
+	// keeps everything else, in order. A live spool has none to drop.
+	if kept := coalesce.DropStaleActivity(batch, deps.now()); len(kept) != len(batch) {
+		debugf(deps.stderr, deps.debug, "agentpulse flush: dropped %d stale activity events from a backlog of %d", len(batch)-len(kept), len(batch))
+		batch = kept
+	}
+
+	// ERR-05: while a 429's Retry-After runs, no flush run contacts the
+	// relay. Every hook still starts a flush, so without this each one
+	// would ask again and be refused again. The spool keeps what it has,
+	// less the stale activity dropped above, and LastFlush says why
+	// nothing was sent, so "agentpulse doctor" is current during the wait.
+	if rateLimited(fstate, deps.now()) {
+		debugf(deps.stderr, deps.debug, "agentpulse flush: rate limited until %s, not sending", fstate.RateLimitedUntil)
+		if err := commit(batch); err != nil {
+			debugf(deps.stderr, deps.debug, "agentpulse flush: committing spool: %v", err)
+		}
+		fstate.LastFlush = &state.LastFlush{TS: deps.now().UTC().Format(time.RFC3339), Outcome: state.OutcomeRateLimited, HTTPStatus: http.StatusTooManyRequests}
+		if err := state.Save(xdgpaths.StatePath(), fstate); err != nil {
+			debugf(deps.stderr, deps.debug, "agentpulse flush: saving state: %v", err)
+		}
+		return
+	}
+	fstate.RateLimitedUntil = ""
+
 	cur := batch
 	retryAttempt := 0
 	rateLimitRetries := 0
@@ -297,13 +340,17 @@ runLoop:
 
 		case relay.KindRateLimited:
 			outcome = state.OutcomeRateLimited
+			wait := rateLimitWait(se)
+			fstate.RateLimitedUntil = deps.now().Add(wait).UTC().Format(time.RFC3339)
 			rateLimitRetries++
 			if rateLimitRetries > maxRateLimitRetries || !se.RetryAfterValid {
 				break runLoop
 			}
-			if !sleepWithinBudget(ctx, se.RetryAfter) {
+			if !sleepWithinBudget(ctx, wait) {
 				break runLoop
 			}
+			// Waited it out inside this run's budget.
+			fstate.RateLimitedUntil = ""
 
 		case relay.KindServerError, relay.KindNetwork, relay.KindTimeout:
 			if se.Kind == relay.KindServerError {
@@ -331,6 +378,33 @@ runLoop:
 	if err := state.Save(xdgpaths.StatePath(), fstate); err != nil {
 		debugf(deps.stderr, deps.debug, "agentpulse flush: saving state: %v", err)
 	}
+}
+
+// rateLimitWait is how long to wait after a 429: its Retry-After, bounded
+// by minRateLimitWait and maxRateLimitWait, or rateLimitFallbackWait when
+// it had none.
+func rateLimitWait(se *relay.StatusError) time.Duration {
+	if !se.RetryAfterValid {
+		return rateLimitFallbackWait
+	}
+	return min(max(se.RetryAfter, minRateLimitWait), maxRateLimitWait)
+}
+
+// rateLimited reports whether a 429's wait, recorded in
+// state.RateLimitedUntil, is still running at now. A time further ahead
+// than maxRateLimitWait cannot have been written by this bridge's clock as
+// it now reads (the clock was set back), so it is ignored rather than
+// honored for however long that is.
+func rateLimited(s state.State, now time.Time) bool {
+	if s.RateLimitedUntil == "" {
+		return false
+	}
+	until, err := time.Parse(time.RFC3339, s.RateLimitedUntil)
+	if err != nil {
+		return false
+	}
+	left := until.Sub(now)
+	return left > 0 && left <= maxRateLimitWait
 }
 
 // recordUnpairedFlush sets LastFlush to OutcomeUnpaired and saves it,
