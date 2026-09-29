@@ -98,7 +98,7 @@ Three mechanisms keep it that way, and all three are in this repository:
    event and payload type and fails if a field named `cwd`, `prompt`,
    `tool_input`, `tool_response`, `transcript_path`, `agent_id`,
    `agent_transcript_path`, `error`, `error_details`,
-   `last_assistant_message`, or `message` ever appears.
+   `last_assistant_message`, `message`, or `notification_type` ever appears.
 2. **The relay's own validation** — every event is validated against the
    published `event.v1` JSON Schema, which sets `additionalProperties: false`
    on every variant, so an unknown field is rejected rather than stored.
@@ -115,6 +115,13 @@ Three mechanisms keep it that way, and all three are in this repository:
 
 The relay stores events for a bounded window so the app can read them; what
 it does with them beyond that is documented with the relay, not here.
+
+When the bridge has fallen behind (the Mac slept, the network was down, or
+the relay asked it to slow down), it does not replay hours of history: it
+sends only the events that define each session's current state, plus every
+`paused`, `pr_created` and `commit`, so your phone catches up in one or two
+batches (`internal/coalesce` says exactly which events survive). It never
+edits an event or sends anything it did not spool.
 
 ## The privacy model
 
