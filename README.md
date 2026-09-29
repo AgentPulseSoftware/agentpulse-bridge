@@ -48,8 +48,8 @@ Then run `agentpulse pair` to connect the machine to the AgentPulse app, and
 ### Upgrading
 
 After `brew upgrade agentpulse` (or `pip install --upgrade agentpulse`), run
-`agentpulse pair --hooks-only` once to enable subagent tracking: it shows the
-hooks it will add to `~/.claude/settings.json`, asks first, and keeps your
+`agentpulse pair --hooks-only` once to enable subagent tracking and
+usage-limit pauses: it shows the hooks it will add to `~/.claude/settings.json`, asks first, and keeps your
 pairing.
 
 ## What the bridge sends, and what it does not
@@ -79,6 +79,7 @@ The payload depends on the type and is just as narrow:
 | `subagent_start`, `subagent_stop` | nothing (see "The privacy model" below) |
 | `pr_created` | the pull request number, if one was printed |
 | `session_end` | a reason: `clear`, `logout`, `prompt_input_exit`, `other` |
+| `paused` | a cause: `usage_limit`, `limit_reset`, `billing`, `auth`, `overloaded`, `output_limit`, or `api_error`; never the error message itself |
 
 That is the whole vocabulary. There is no field for a file path, a command
 line, a tool's output, your prompt, your source code, your environment
@@ -95,8 +96,9 @@ Three mechanisms keep it that way, and all three are in this repository:
    serialised and sent; there is no map, no "extra" field, and no passthrough
    of the hook JSON. `internal/classify/br19_test.go` reflects over every
    event and payload type and fails if a field named `cwd`, `prompt`,
-   `tool_input`, `tool_response`, `transcript_path`, `agent_id`, or
-   `agent_transcript_path` ever appears.
+   `tool_input`, `tool_response`, `transcript_path`, `agent_id`,
+   `agent_transcript_path`, `error`, `error_details`,
+   `last_assistant_message`, or `message` ever appears.
 2. **The relay's own validation** — every event is validated against the
    published `event.v1` JSON Schema, which sets `additionalProperties: false`
    on every variant, so an unknown field is rejected rather than stored.
