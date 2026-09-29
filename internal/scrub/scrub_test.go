@@ -458,6 +458,71 @@ func TestDocumentScrubsMatcherField(t *testing.T) {
 	}
 }
 
+// TestDocumentScrubsCodeFields covers StopFailure's "error" and
+// Notification's "notification_type" (ADR-006 section 7): kept only when
+// shaped like a short lower-case code.
+func TestDocumentScrubsCodeFields(t *testing.T) {
+	cases := []struct {
+		name  string
+		value any
+		want  any
+	}{
+		{"documented error code kept", "rate_limit", "rate_limit"},
+		{"invented code-shaped value kept", "some_future_error", "some_future_error"},
+		{"quota notification type kept", "quota_auto_resume_stale", "quota_auto_resume_stale"},
+		{"forty characters kept", strings.Repeat("a", 40), strings.Repeat("a", 40)},
+		{"forty-one characters scrubbed", strings.Repeat("a", 41), "scrubbed"},
+		{"empty scrubbed", "", "scrubbed"},
+		{"upper case scrubbed", "Rate_Limit", "scrubbed"},
+		{"digits scrubbed", "http_429", "scrubbed"},
+		{"a sentence scrubbed", "API Error: Rate limit reached", "scrubbed"},
+		{"a path scrubbed", "/Users/someone/secret-project/main.go", "scrubbed"},
+		{"a trailing newline scrubbed", "rate_limit\n", "scrubbed"},
+		{"a number kept as a number", 429.0, 429.0},
+	}
+	for _, field := range []string{"error", "notification_type"} {
+		for _, tc := range cases {
+			t.Run(field+"/"+tc.name, func(t *testing.T) {
+				ctx := newContext()
+				got := ctx.document(map[string]any{"hook_event_name": "StopFailure", field: tc.value})
+				if got[field] != tc.want {
+					t.Errorf("%s = %#v, want %#v", field, got[field], tc.want)
+				}
+			})
+		}
+	}
+}
+
+// TestDocumentScrubsStopFailureMessageText proves the default policy
+// covers the fields ADR-006 section 7 names as message text:
+// error_details, last_assistant_message and title are never kept.
+func TestDocumentScrubsStopFailureMessageText(t *testing.T) {
+	const path = "/Users/someone/secret-project/main.go"
+	const sentence = "The build broke while editing the payment module."
+	ctx := newContext()
+	got := ctx.document(map[string]any{
+		"hook_event_name":        "StopFailure",
+		"error":                  "rate_limit",
+		"error_details":          "429 Too Many Requests at " + path,
+		"last_assistant_message": sentence + " " + path,
+		"title":                  sentence,
+	})
+	for _, field := range []string{"error_details", "last_assistant_message", "title"} {
+		if got[field] != "scrubbed" {
+			t.Errorf("%s = %#v, want \"scrubbed\"", field, got[field])
+		}
+	}
+	out, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{path, sentence, "secret-project", "payment"} {
+		if strings.Contains(string(out), secret) {
+			t.Errorf("scrubbed document contains %q: %s", secret, out)
+		}
+	}
+}
+
 // TestDocumentScrubsToolNameField covers the "tool_name" allow-list.
 func TestDocumentScrubsToolNameField(t *testing.T) {
 	cases := []struct {

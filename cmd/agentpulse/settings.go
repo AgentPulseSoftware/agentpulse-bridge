@@ -25,7 +25,7 @@ import (
 // br08HookTimeout is BR-08's hook timeout in seconds.
 const br08HookTimeout = 10
 
-// hookEntries builds the ten BR-08 entries for command: one per event,
+// hookEntries builds the eleven BR-08 entries for command: one per event,
 // with an empty matcher and a 10 second timeout.
 func hookEntries(command string) []hooks.Entry {
 	entries := make([]hooks.Entry, 0, len(claudehooks.BR08Events))

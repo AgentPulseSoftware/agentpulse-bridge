@@ -35,7 +35,7 @@ func TestCheckClaudeVersion(t *testing.T) {
 			name:          "before the subagent hooks",
 			output:        "2.1.261 (Claude Code)\n",
 			wantVerdict:   WARN,
-			wantInFinding: []string{"SubagentStart, SubagentStop", "subagents will show without precise start and stop"},
+			wantInFinding: []string{"StopFailure, SubagentStart, SubagentStop", "subagents will show without precise start and stop", "usage-limit pauses will show as lost contact"},
 		},
 		{
 			name:          "older version",

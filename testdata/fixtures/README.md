@@ -115,6 +115,10 @@ The full list to record (SPEC 18):
 - Subagent hooks (D69, ADR-005, cards P5-14 and P5-18): `subagent-single`,
   `subagent-permission`, `subagent-parallel`, `subagent-type-sanitising`
   — see below.
+- Usage-limit and API-error pauses (D76, ADR-006, card P5-30):
+  `stopfailure-rate-limit`, `stopfailure-auto-resume`,
+  `stopfailure-stale-reset`, `stopfailure-unknown-error`,
+  `stopfailure-in-subagent` — see below.
 
 Each scenario gets its own directory. A runner-specific scenario should be
 named after the runner, e.g. `verify-pytest`, `verify-go-test`, so the
@@ -145,3 +149,25 @@ by its `subagent` object, plus `subagent_start` and `subagent_stop`.
 (a path, a space, 41 characters, a quote, empty, non-ASCII) or merely
 padded with spaces, and checks that each is sent cleaned or as the
 literal `subagent` (ADR-005 section 1).
+
+## Pause scenarios (D76, ADR-006)
+
+A real usage limit cannot be triggered on demand, so these five are
+hand-written from Anthropic's hooks reference, not from a recording
+(`COMPATIBILITY.md`, "Usage-limit pauses"). Every `StopFailure` in them
+carries an `error_details` and a `last_assistant_message`, and every
+usage-limit `Notification` a `message` and a `title`, holding a made-up
+path and a sentence: the replay tests fail if any of that text, or an
+unrecognised `error` value, appears in an emitted event.
+
+- `stopfailure-rate-limit`: a turn ends on `rate_limit`, sent as
+  `paused` with cause `usage_limit`.
+- `stopfailure-auto-resume`: the same, then `quota_auto_resume_fired`
+  (nothing sent), the continuation prompt, an edit and a normal `Stop`.
+- `stopfailure-stale-reset`: the same pause, then
+  `quota_auto_resume_stale`, sent as `paused` with cause `limit_reset`.
+- `stopfailure-unknown-error`: an invented `error` value, sent as cause
+  `api_error`, then the session is closed.
+- `stopfailure-in-subagent`: a `StopFailure` inside a subagent (it
+  carries `agent_id`) sends nothing; the main chain's own `StopFailure`
+  that follows is sent as usual.

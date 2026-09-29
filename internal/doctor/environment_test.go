@@ -173,6 +173,8 @@ func TestCheckSettingsFile(t *testing.T) {
 	}
 	originalEight := []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest", "Notification", "Stop", "SessionEnd"}
 	allTen := append(append([]string{}, originalEight...), "SubagentStart", "SubagentStop")
+	allEleven := append(append([]string{}, allTen...), "StopFailure")
+	const hooksOnlyRemedy = "Run `agentpulse pair --hooks-only` to add the missing hooks (keeps your pairing)."
 
 	tests := []struct {
 		name          string
@@ -200,31 +202,47 @@ func TestCheckSettingsFile(t *testing.T) {
 		{
 			name:         "complete",
 			settingsPath: "/home/sam/.claude/settings.json",
-			installed:    registered(allTen...),
+			installed:    registered(allEleven...),
 			wantVerdict:  PASS,
 		},
 		{
-			name:          "only the subagent hooks missing",
+			name:          "paired before StopFailure: only StopFailure missing",
+			settingsPath:  "/home/sam/.claude/settings.json",
+			installed:     registered(allTen...),
+			wantVerdict:   WARN,
+			wantInFinding: "missing optional hooks: StopFailure",
+			wantRemedy:    hooksOnlyRemedy,
+		},
+		{
+			name:          "paired before the subagent hooks: all three optional hooks missing",
 			settingsPath:  "/home/sam/.claude/settings.json",
 			installed:     registered(originalEight...),
 			wantVerdict:   WARN,
-			wantInFinding: "missing the subagent hooks: SubagentStart, SubagentStop",
-			wantRemedy:    "Run `agentpulse pair --hooks-only` to add the subagent hooks (keeps your pairing).",
+			wantInFinding: "missing optional hooks: StopFailure, SubagentStart, SubagentStop",
+			wantRemedy:    hooksOnlyRemedy,
 		},
 		{
 			name:          "only SubagentStop missing",
 			settingsPath:  "/home/sam/.claude/settings.json",
-			installed:     registered(append(append([]string{}, originalEight...), "SubagentStart")...),
+			installed:     registered(append(append([]string{}, originalEight...), "SubagentStart", "StopFailure")...),
 			wantVerdict:   WARN,
-			wantInFinding: "missing the subagent hooks: SubagentStop",
-			wantRemedy:    "Run `agentpulse pair --hooks-only` to add the subagent hooks (keeps your pairing).",
+			wantInFinding: "missing optional hooks: SubagentStop",
+			wantRemedy:    hooksOnlyRemedy,
 		},
 		{
 			name:          "an original hook missing as well",
 			settingsPath:  "/home/sam/.claude/settings.json",
 			installed:     registered(originalEight[1:]...),
 			wantVerdict:   FAIL,
-			wantInFinding: "missing hook registrations for: SessionStart, SubagentStart, SubagentStop",
+			wantInFinding: "missing hook registrations for: SessionStart, StopFailure, SubagentStart, SubagentStop",
+			wantRemedy:    "run `agentpulse pair`",
+		},
+		{
+			name:          "only Stop missing, StopFailure present",
+			settingsPath:  "/home/sam/.claude/settings.json",
+			installed:     registered(append(append([]string{}, originalEight[:6]...), "SessionEnd", "StopFailure", "SubagentStart", "SubagentStop")...),
+			wantVerdict:   FAIL,
+			wantInFinding: "missing hook registrations for: Stop",
 			wantRemedy:    "run `agentpulse pair`",
 		},
 		{

@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","session_id":"sess_stopfailure_in_subagent","cwd":"/scrubbed/e5e5e5e5","transcript_path":"/scrubbed/transcript.jsonl","tool_name":"Task","tool_use_id":"toolu_01","tool_input":{"description":"scrubbed (12 chars)","prompt":"scrubbed (40 chars)","subagent_type":"reviewer"}}

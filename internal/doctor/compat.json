@@ -9,6 +9,7 @@
     {"name": "Notification", "min_version": "2.1.261"},
     {"name": "Stop", "min_version": "2.1.261"},
     {"name": "SessionEnd", "min_version": "2.1.261"},
+    {"name": "StopFailure", "min_version": "2.1.283"},
     {"name": "SubagentStart", "min_version": "2.1.283"},
     {"name": "SubagentStop", "min_version": "2.1.283"}
   ]

@@ -20,7 +20,7 @@ import (
 // BR-09's "keeps no secret after unpair" looks like from outside.
 func (f *fakeCredStore) deletedSecret() bool { return !f.has }
 
-// pairedMachine builds the full local state a paired bridge has: the ten
+// pairedMachine builds the full local state a paired bridge has: the eleven
 // hook entries plus another tool's, a config file, a spool, a state file,
 // a watch list, a lock file, a session scratch file, and a log.
 func pairedMachine(t *testing.T) (home string, store *fakeCredStore) {

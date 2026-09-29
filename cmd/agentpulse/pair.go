@@ -51,7 +51,7 @@ func newPairCmd() *cobra.Command {
 			"AgentPulse app, and — once your phone has scanned it — shows the exact change " +
 			"it wants to make to ~/.claude/settings.json and asks for your confirmation.\n\n" +
 			"On a machine that is already paired, --hooks-only adds any Claude Code hooks " +
-			"this version registers that are missing (after an upgrade, the subagent hooks), " +
+			"this version registers that are missing (after an upgrade, for example StopFailure or the subagent hooks), " +
 			"without pairing again and without contacting the relay.",
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
@@ -279,7 +279,7 @@ func newProgressLine(d pairDeps) (progress func(time.Duration), clear func()) {
 	return progress, clear
 }
 
-// installHooks is BR-07's second half and BR-08: build the ten entries,
+// installHooks is BR-07's second half and BR-08: build the eleven entries,
 // show the diff, ask, write.
 func installHooks(d pairDeps, deviceName string) error {
 	if _, err := fmt.Fprintf(d.out, "Paired with %s.\n\n", displayName(deviceName)); err != nil {

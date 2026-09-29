@@ -240,16 +240,18 @@ func checkSettingsFile(settingsPath string, installed map[string][]string, insta
 			Finding: fmt.Sprintf("all %d hook events registered", len(claudehooks.BR08Events)),
 		}
 	}
-	if onlySubagentEvents(missing) {
-		// Subagents still show from their first tool call; only a precise
-		// start and stop is lost (ADR-005 section 3). Claude Code sends a
-		// subagent's hooks with its parent's session_id (COMPATIBILITY.md),
-		// so no parent mapping depends on SubagentStart and this never
-		// needs to be a FAIL.
+	if onlyOptionalEvents(missing) {
+		// Each optional hook only adds information: subagents still show
+		// from their first tool call, only without a precise start and
+		// stop (ADR-005 section 3), and without StopFailure a usage limit
+		// shows as lost contact, as it always has (ADR-006 section 6).
+		// Claude Code sends a subagent's hooks with its parent's
+		// session_id (COMPATIBILITY.md), so no parent mapping depends on
+		// SubagentStart and this never needs to be a FAIL.
 		return Result{
 			Name: "settings-file", Verdict: WARN,
-			Finding: fmt.Sprintf("%s is missing the subagent hooks: %s", settingsPath, strings.Join(missing, ", ")),
-			Remedy:  subagentHooksRemedy,
+			Finding: fmt.Sprintf("%s is missing optional hooks: %s", settingsPath, strings.Join(missing, ", ")),
+			Remedy:  optionalHooksRemedy,
 		}
 	}
 	return Result{
@@ -259,13 +261,13 @@ func checkSettingsFile(settingsPath string, installed map[string][]string, insta
 	}
 }
 
-// subagentHooksRemedy is the remedy when only the subagent hooks are
+// optionalHooksRemedy is the remedy when only optional hooks are
 // missing. The app's setup instructions name the same command.
-const subagentHooksRemedy = "Run `agentpulse pair --hooks-only` to add the subagent hooks (keeps your pairing)."
+const optionalHooksRemedy = "Run `agentpulse pair --hooks-only` to add the missing hooks (keeps your pairing)."
 
-func onlySubagentEvents(events []string) bool {
+func onlyOptionalEvents(events []string) bool {
 	for _, e := range events {
-		if !claudehooks.IsSubagentEvent(e) {
+		if !claudehooks.IsOptionalEvent(e) {
 			return false
 		}
 	}

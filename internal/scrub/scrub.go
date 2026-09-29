@@ -76,6 +76,24 @@ var topLevelPassthroughStrings = map[string]bool{
 	"tool_use_id":     true,
 }
 
+// codeFieldPattern is the shape "error" (StopFailure) and
+// "notification_type" (Notification) must have to be kept verbatim: a
+// short lower-case code such as "rate_limit" or
+// "quota_auto_resume_stale" (ADR-006 section 7). Anything else in those
+// fields, such as a sentence, a path or a number, is scrubbed like any
+// other string. StopFailure's error_details and last_assistant_message,
+// and Notification's title, are message text and are not listed
+// anywhere here, so the default policy scrubs them.
+var codeFieldPattern = regexp.MustCompile(`^[a-z_]{1,40}$`)
+
+// scrubCodeValue keeps a code-shaped value and scrubs anything else.
+func scrubCodeValue(s string) string {
+	if codeFieldPattern.MatchString(s) {
+		return s
+	}
+	return "scrubbed"
+}
+
 // knownNotificationMessagePrefixes are the Notification hook's own fixed
 // lead-in phrases (SPEC 7.2's permission_prompt / idle_prompt), shared with
 // internal/classify via internal/claudehooks so both packages key off
@@ -278,6 +296,12 @@ func (c *context) document(doc map[string]any) map[string]any {
 				out[k] = scrubMessageValue(s)
 			} else {
 				out[k] = v
+			}
+		case "error", "notification_type":
+			if s, ok := v.(string); ok {
+				out[k] = scrubCodeValue(s)
+			} else {
+				out[k] = c.scrubTopLevelOther(k, v)
 			}
 		case "matcher":
 			if s, ok := v.(string); ok {

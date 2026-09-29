@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 )
@@ -61,8 +62,11 @@ func replayFixture(t *testing.T, dir string, prepare func(*HookInput)) [][]byte 
 }
 
 // agentValues returns every agent_id and transcript path a scenario's
-// hook documents carry: none of them may appear in any emitted byte
-// (BR-19, card P5-18).
+// hook documents carry, and the error text and notification text of
+// StopFailure and the usage-limit notifications: none of them may appear
+// in any emitted byte (BR-19, card P5-18; ADR-006 section 7). A
+// StopFailure's raw error value is included too, unless it is spelled
+// like one of the cause codes the event legitimately carries.
 func agentValues(t *testing.T, dir string) [][]byte {
 	t.Helper()
 	files, _ := filepath.Glob(filepath.Join(dir, "[0-9][0-9][0-9]-*.json"))
@@ -70,18 +74,43 @@ func agentValues(t *testing.T, dir string) [][]byte {
 	for _, f := range files {
 		raw, _ := os.ReadFile(f) //nolint:gosec // fixture path from the repo's own testdata
 		var doc struct {
-			AgentID             string `json:"agent_id"`
-			TranscriptPath      string `json:"transcript_path"`
-			AgentTranscriptPath string `json:"agent_transcript_path"`
+			HookEventName        string `json:"hook_event_name"`
+			AgentID              string `json:"agent_id"`
+			TranscriptPath       string `json:"transcript_path"`
+			AgentTranscriptPath  string `json:"agent_transcript_path"`
+			Error                string `json:"error"`
+			ErrorDetails         string `json:"error_details"`
+			LastAssistantMessage string `json:"last_assistant_message"`
+			NotificationType     string `json:"notification_type"`
+			Message              string `json:"message"`
+			Title                string `json:"title"`
 		}
 		_ = json.Unmarshal(raw, &doc)
-		for _, v := range []string{doc.AgentID, doc.TranscriptPath, doc.AgentTranscriptPath} {
+		candidates := []string{doc.AgentID, doc.TranscriptPath, doc.AgentTranscriptPath}
+		if doc.HookEventName == HookStopFailure {
+			candidates = append(candidates, doc.ErrorDetails, doc.LastAssistantMessage)
+			if !isCauseCode(doc.Error) {
+				candidates = append(candidates, doc.Error)
+			}
+		}
+		if strings.HasPrefix(doc.NotificationType, "quota_auto_resume_") {
+			candidates = append(candidates, doc.Message, doc.Title)
+		}
+		for _, v := range candidates {
 			if v != "" {
 				vals = append(vals, []byte(v))
 			}
 		}
 	}
 	return vals
+}
+
+func isCauseCode(s string) bool {
+	switch s {
+	case CauseUsageLimit, CauseLimitReset, CauseBilling, CauseAuth, CauseOverloaded, CauseOutputLimit, CauseAPIError:
+		return true
+	}
+	return false
 }
 
 func TestFixtureReplayBothModes(t *testing.T) {
@@ -96,8 +125,16 @@ func TestFixtureReplayBothModes(t *testing.T) {
 			on := replayFixture(t, dir, func(in *HookInput) { in.SubagentsOn = true })
 			off := replayFixture(t, dir, func(in *HookInput) { in.SubagentsOn = false })
 			// Off mode must be exactly what the classifier produced before
-			// it knew agent_id and agent_type existed.
-			legacy := replayFixture(t, dir, func(in *HookInput) { in.AgentID, in.AgentType = "", "" })
+			// it knew agent_id and agent_type existed. StopFailure and the
+			// usage-limit notifications are newer than that and read
+			// agent_id in every mode (ADR-006 section 2: inside a subagent
+			// they send nothing), so they keep it here.
+			legacy := replayFixture(t, dir, func(in *HookInput) {
+				if in.HookEventName == HookStopFailure || strings.HasPrefix(in.NotificationType, "quota_auto_resume_") {
+					return
+				}
+				in.AgentID, in.AgentType = "", ""
+			})
 
 			if len(off) != len(legacy) {
 				t.Fatalf("off mode emitted %d events, legacy %d", len(off), len(legacy))
