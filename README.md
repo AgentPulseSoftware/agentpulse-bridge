@@ -34,14 +34,14 @@ pip install agentpulse-bridge
 The package is named `agentpulse-bridge` on PyPI; the command it installs
 is still `agentpulse`.
 
-Install script — download it, check its SHA-256 against the value in the
-release notes, then run it. It is never a `curl | sh` one-liner, and it
-verifies the checksum of the archive it downloads before extracting
-anything:
+Install script — download it, check its SHA-256 against the `install.sh`
+line in the release's `checksums.txt`, then run it. It is never a
+`curl | sh` one-liner, and it verifies the checksum of the archive it
+downloads before extracting anything:
 
 ```
 curl -fsSL https://github.com/agentpulsesoftware/agentpulse-bridge/releases/latest/download/install.sh -o install.sh
-sha256sum install.sh   # or: shasum -a 256 install.sh — compare with the release notes
+sha256sum install.sh   # or: shasum -a 256 install.sh — compare with checksums.txt
 sh install.sh
 ```
 
@@ -208,7 +208,12 @@ material is only ever committed after `agentpulse scrub` has rewritten it and
 its self-check has passed.
 
 `.goreleaser.yaml` describes how a tagged release is built, optionally signed
-and notarised, archived, checksummed, and published.
+and notarised, archived, checksummed, and published, with `install.sh`
+attached to every release and listed in its `checksums.txt`. Release
+binaries also lack the test-only switch that lets a test binary store its
+credential in a file instead of the Keychain or Secret Service;
+`TestReleaseBinaryHasNoTestCredBackendSwitch` proves that on a built
+binary.
 
 ## Compatibility
 

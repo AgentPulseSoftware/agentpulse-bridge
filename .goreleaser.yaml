@@ -62,6 +62,10 @@ archives:
 checksum:
   name_template: "checksums.txt"
   algorithm: sha256
+  # install.sh's own line, so the README's "check its SHA-256" step has a
+  # published value to compare against.
+  extra_files:
+    - glob: ./install.sh
 
 # Snapshot builds (PR-time "does the config still work" runs, and local
 # testing) never touch the tap or a real GitHub release.
@@ -93,3 +97,7 @@ release:
   # publishes nothing when invoked with --skip=publish or --snapshot.
   draft: false
   prerelease: auto
+  # The README downloads install.sh from releases/latest/download, so it
+  # must be uploaded with every release.
+  extra_files:
+    - glob: ./install.sh
