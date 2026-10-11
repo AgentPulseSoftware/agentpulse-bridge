@@ -15,8 +15,9 @@ make fixtures   # replays the scenario corpus through the built binary
 ```
 
 `make build`'s binary is not byte-for-byte what a tagged release ships: the
-release build additionally sets `CGO_ENABLED=0`, passes `-trimpath` and
-`-ldflags "-s -w"`, and stamps in a version string. What stays true either
+release build additionally sets `CGO_ENABLED=0`, passes `-ldflags "-s -w"`,
+and stamps in a version string. Both pass `-trimpath`, so neither carries
+the directory it was built in. What stays true either
 way, and is the actual guarantee: no dev tag, and no `record` command.
 
 Schema-validation tests in `internal/classify` are skipped unless
