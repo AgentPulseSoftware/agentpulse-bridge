@@ -33,8 +33,9 @@ const maxResponseBodyBytes = 1 << 20 // 1 MiB
 
 // Config configures a Client.
 type Config struct {
-	// BaseURL is the relay's origin, e.g. "https://relay.agentpulse.app"
-	// or "http://localhost:8787" for a relay running locally (SEC-01). Pass it
+	// BaseURL is the relay's origin, e.g.
+	// "https://agentpulse-relay.agentpulsesoftware.workers.dev" or
+	// "http://localhost:8787" for a relay running locally (SEC-01). Pass it
 	// through ValidateBaseURL (or let NewClient do so) before use.
 	BaseURL string
 	// BridgeID and BridgeSecret form the Authorization header credential:
