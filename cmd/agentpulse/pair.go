@@ -114,7 +114,7 @@ func runPair(ctx context.Context, d pairDeps) error {
 	}
 	store := d.credStore
 	if store == nil {
-		store = cred.Default()
+		store = defaultCredStore()
 	}
 
 	baseURL, err := resolveRelayBaseURL(d.relayFlag)

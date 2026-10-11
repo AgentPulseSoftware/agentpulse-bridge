@@ -22,7 +22,9 @@ import (
 // AGENTPULSE_TEST_CRED_BACKEND=file (named so it reads as a test seam,
 // not a supported setting) forces
 // internal/cred's Default() straight to the file fallback (see
-// internal/cred/select.go). Before this, these tests relied only on the
+// internal/cred/override_dev.go). That switch exists only in a binary
+// built with the "testcred" or "dev" tag, which is why
+// buildAgentpulseOnce adds "testcred". Before this, these tests relied only on the
 // bridge being unpaired (config.Load's Default() short-circuits
 // runFlush before it ever resolves a relay URL or a credential store) to
 // keep them off the network and the real Keychain/Secret Service,
@@ -72,7 +74,9 @@ func isolatedDir(t *testing.T) string {
 }
 
 // buildAgentpulseOnce compiles the real release binary exactly once for
-// this test file (the same pattern hook_bench_test.go uses for
+// this test file, plus the "testcred" build tag, which compiles in only
+// the AGENTPULSE_TEST_CRED_BACKEND switch testIsolationEnv relies on (a
+// plain release build ignores it; see internal/cred/override_release.go) (the same pattern hook_bench_test.go uses for
 // BenchmarkHook), so the BR-04 stdio tests below exec it directly rather
 // than driving runHook/runFlush in-process — those functions' own
 // deps.stderr injection already proves the message content is right
@@ -96,7 +100,7 @@ func buildAgentpulseOnce(t *testing.T) string {
 			return
 		}
 		agentpulseBinPath = filepath.Join(dir, "agentpulse-stdio-test")
-		build := exec.Command("go", "build", "-o", agentpulseBinPath, ".")
+		build := exec.Command("go", "build", "-tags", "testcred", "-o", agentpulseBinPath, ".")
 		if out, err := build.CombinedOutput(); err != nil {
 			buildErr = err
 			t.Logf("build output: %s", out)

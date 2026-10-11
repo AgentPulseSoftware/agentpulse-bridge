@@ -28,17 +28,20 @@ PyPI (a wheel that carries the prebuilt binary; handy if `pip` is the
 package manager you already have):
 
 ```
-pip install agentpulse
+pip install agentpulse-bridge
 ```
 
-Install script — download it, check its SHA-256 against the value in the
-release notes, then run it. It is never a `curl | sh` one-liner, and it
-verifies the checksum of the archive it downloads before extracting
-anything:
+The package is named `agentpulse-bridge` on PyPI; the command it installs
+is still `agentpulse`.
+
+Install script — download it, check its SHA-256 against the `install.sh`
+line in the release's `checksums.txt`, then run it. It is never a
+`curl | sh` one-liner, and it verifies the checksum of the archive it
+downloads before extracting anything:
 
 ```
 curl -fsSL https://github.com/agentpulsesoftware/agentpulse-bridge/releases/latest/download/install.sh -o install.sh
-sha256sum install.sh   # or: shasum -a 256 install.sh — compare with the release notes
+sha256sum install.sh   # or: shasum -a 256 install.sh — compare with checksums.txt
 sh install.sh
 ```
 
@@ -82,12 +85,32 @@ The payload depends on the type and is just as narrow:
 | `paused` | a cause: `usage_limit`, `limit_reset`, `billing`, `auth`, `overloaded`, `output_limit`, or `api_error`; never the error message itself |
 
 That is the whole vocabulary. There is no field for a file path, a command
-line, a tool's output, your prompt, your source code, your environment
+line, a tool's output, an error message, your source code, your environment
 variables, your branch names, or your commit messages — not scrubbed
 versions of them, not truncated versions of them, not hashed versions of
-them beyond the project key hash above. The directory name of a project is
-the one human-readable string that leaves the machine, and only for projects
-you are watching; a subagent's type name (see "The privacy model") is the other.
+them beyond the project key hash above. Your prompt is never sent either,
+except for the opt-in task label below.
+
+### What a person could read
+
+Four kinds of human-readable text can leave your machine, and nothing else:
+
+1. **Your computer's name.** `agentpulse pair` sends it once, when you
+   pair, so the app can tell your machines apart. It is the machine's
+   hostname, cut to 64 characters, with any slash removed.
+2. **Project folder names.** The name of the project's top folder (the
+   repository root, or the working folder outside a repository), such as
+   `memoryflow`, cut to 64 characters — never the path to it. It travels
+   with every event of a project you watch, and, for a project you do not
+   watch, at most once every six hours so the app can list it.
+3. **Subagent type names**, such as `reviewer` (see "The privacy model").
+4. **The task label, only if you turn it on.** Task labels are off unless
+   you switch them on in the AgentPulse app. When on, the bridge sends the
+   first line of your prompt, with whitespace collapsed and cut to 80
+   characters, once at the start of a session and again for the first
+   prompt after the agent stops.
+
+The bridge never sends file paths, commands, tool output, or error text.
 
 Three mechanisms keep it that way, and all three are in this repository:
 
@@ -185,7 +208,12 @@ material is only ever committed after `agentpulse scrub` has rewritten it and
 its self-check has passed.
 
 `.goreleaser.yaml` describes how a tagged release is built, optionally signed
-and notarised, archived, checksummed, and published.
+and notarised, archived, checksummed, and published, with `install.sh`
+attached to every release and listed in its `checksums.txt`. Release
+binaries also lack the test-only switch that lets a test binary store its
+credential in a file instead of the Keychain or Secret Service;
+`TestReleaseBinaryHasNoTestCredBackendSwitch` proves that on a built
+binary.
 
 ## Compatibility
 

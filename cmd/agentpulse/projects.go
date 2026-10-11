@@ -277,7 +277,7 @@ func setWatchAtRelay(ctx context.Context, d projectsDeps, req relay.SetWatchRequ
 	}
 	credStore := d.credStore
 	if credStore == nil {
-		credStore = cred.Default()
+		credStore = defaultCredStore()
 	}
 	secret, err := credStore.Get()
 	if err != nil || secret == "" {

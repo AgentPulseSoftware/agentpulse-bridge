@@ -5,13 +5,15 @@ PKG := ./...
 
 # build produces the release binary: no "record" command, since
 # fixture recording writes raw, unscrubbed session data to disk.
+# -trimpath keeps the builder's own directory paths out of the binary,
+# as the release build (.goreleaser.yaml) does.
 build:
-	go build -o bin/$(BINARY) ./cmd/agentpulse
+	go build -trimpath -o bin/$(BINARY) ./cmd/agentpulse
 
 # build-dev produces a development binary with the extra "record"
 # subcommand used to capture fixture recordings. Never ship this binary.
 build-dev:
-	go build -tags dev -o bin/$(BINARY)-dev ./cmd/agentpulse
+	go build -trimpath -tags dev -o bin/$(BINARY)-dev ./cmd/agentpulse
 
 # test runs the suite twice: once as the release build sees it, once with
 # -tags dev so the "record" command's own code is exercised too. -timeout

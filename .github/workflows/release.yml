@@ -88,7 +88,7 @@ jobs:
       - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
         with:
           distribution: goreleaser
-          version: "~> v2"
+          version: v2.18.1 # exact pin (SEC-10); bump deliberately, in both workflows
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -104,7 +104,10 @@ jobs:
         run: security delete-keychain "$RUNNER_TEMP/agentpulse-release-signing.keychain-db" || true
 
       # The PyPI half of packaging: wraps the binaries GoReleaser just
-      # built.
+      # built. The project is "agentpulse-bridge" on PyPI (the name
+      # "agentpulse" belongs to an unrelated project); the command it
+      # installs is still "agentpulse". Only wheels carrying that name
+      # (normalized to agentpulse_bridge-*.whl) are checked and uploaded.
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
@@ -115,7 +118,7 @@ jobs:
           "$RUNNER_TEMP/pypi-tools/bin/pip" install -q build==1.6.1 hatchling==1.32.0 twine==7.0.0
           "$RUNNER_TEMP/pypi-tools/bin/python" packaging/pypi/build_wheels.py \
             --dist dist --out dist/wheels --version "${GITHUB_REF_NAME#v}"
-          "$RUNNER_TEMP/pypi-tools/bin/twine" check dist/wheels/*.whl
+          "$RUNNER_TEMP/pypi-tools/bin/twine" check dist/wheels/agentpulse_bridge-*.whl
 
       # PYPI_API_TOKEN is read only here, never echoed or written to a
       # file. Skips cleanly while no token is configured (same gating
@@ -130,7 +133,7 @@ jobs:
             exit 0
           fi
           "$RUNNER_TEMP/pypi-tools/bin/twine" upload --non-interactive \
-            --disable-progress-bar dist/wheels/*.whl
+            --disable-progress-bar dist/wheels/agentpulse_bridge-*.whl
 
       - name: "Binary sizes (NFR-05: each must be under 15 MB)"
         if: always()

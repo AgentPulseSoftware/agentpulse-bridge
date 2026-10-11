@@ -67,10 +67,11 @@ const (
 	maxRateLimitWait      = 10 * time.Minute
 )
 
-// defaultRelayBaseURL is the compiled-in production relay host (SPEC
-// 11.5). It can be overridden with --relay or AGENTPULSE_RELAY, which is
-// what the tests and any local relay use.
-const defaultRelayBaseURL = "https://relay.agentpulse.app"
+// defaultRelayBaseURL is the compiled-in production relay (SPEC 11.5):
+// the production Worker's own workers.dev address, never a domain the
+// project does not own (D93). It can be overridden with --relay or
+// AGENTPULSE_RELAY, which is what the tests and any local relay use.
+const defaultRelayBaseURL = "https://agentpulse-relay.agentpulsesoftware.workers.dev"
 
 func newFlushCmd() *cobra.Command {
 	var relayFlag string
@@ -164,7 +165,7 @@ func runFlush(deps flushDeps) {
 
 	credStore := deps.credStore
 	if credStore == nil {
-		credStore = cred.Default()
+		credStore = defaultCredStore()
 	}
 	secret, secretErr := credStore.Get()
 	if secretErr != nil || secret == "" {

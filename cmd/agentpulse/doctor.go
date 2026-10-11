@@ -57,7 +57,7 @@ func runDoctor(ctx context.Context, d doctorDeps) error {
 	}
 	credStore := d.credStore
 	if credStore == nil {
-		credStore = cred.Default()
+		credStore = defaultCredStore()
 	}
 
 	// A failure to resolve the settings path or this binary's own path

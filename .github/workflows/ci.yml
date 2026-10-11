@@ -116,7 +116,7 @@ jobs:
       - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
         with:
           distribution: goreleaser
-          version: "~> v2"
+          version: v2.18.1 # exact pin (SEC-10); bump deliberately, in both workflows
           args: build --snapshot --clean
 
       # NFR-05: each platform binary must stay under 15 MB. Printed here,
@@ -150,4 +150,4 @@ jobs:
           python3 -m venv /tmp/pypi-tools
           /tmp/pypi-tools/bin/pip install -q build==1.6.1 hatchling==1.32.0 twine==7.0.0
           /tmp/pypi-tools/bin/python packaging/pypi/build_wheels.py --dist dist --out dist/wheels --version 0.0.0
-          /tmp/pypi-tools/bin/twine check dist/wheels/*.whl
+          /tmp/pypi-tools/bin/twine check dist/wheels/agentpulse_bridge-*.whl

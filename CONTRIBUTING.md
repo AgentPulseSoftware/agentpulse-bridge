@@ -15,9 +15,16 @@ make fixtures   # replays the scenario corpus through the built binary
 ```
 
 `make build`'s binary is not byte-for-byte what a tagged release ships: the
-release build additionally sets `CGO_ENABLED=0`, passes `-trimpath` and
-`-ldflags "-s -w"`, and stamps in a version string. What stays true either
+release build additionally sets `CGO_ENABLED=0`, passes `-ldflags "-s -w"`,
+and stamps in a version string. Both pass `-trimpath`, so neither carries
+the directory it was built in. What stays true either
 way, and is the actual guarantee: no dev tag, and no `record` command.
+
+Tests that exec a built binary build it with `-tags testcred`, which
+compiles in one test-only switch, `AGENTPULSE_TEST_CRED_BACKEND=file`, so
+that binary stores its credential in a temporary file instead of the real
+Keychain or Secret Service. A release build (no tags) does not contain the
+switch at all; `TestReleaseBinaryHasNoTestCredBackendSwitch` checks that.
 
 Schema-validation tests in `internal/classify` are skipped unless
 `AGENTPULSE_EVENT_SCHEMA` points at a local copy of the `event.v1` JSON
@@ -39,8 +46,13 @@ rest of the suite still runs.
 ## The event schema is closed
 
 The set of fields the bridge sends (`event.v1`) is fixed and additive-only,
-and no field may carry a file path, command text, tool output, or prompt
-text. A pull request that adds a field to the event schema will be declined
+and no field may carry a file path, command text, tool output, or error
+text. Exactly four kinds of human-readable text may leave a user's machine,
+each with a length cap: the computer's name (sent once, at pairing),
+project folder names, subagent type names, and, only when the user has
+turned task labels on, the first line of the prompt cut to 80 characters
+(see "What a person could read" in the README). A change that adds a
+fifth, lengthens one, or adds a field to the event schema will be declined
 without an approved design record behind it. This is the project's central
 promise to its users, so please raise the idea in an issue first.
 

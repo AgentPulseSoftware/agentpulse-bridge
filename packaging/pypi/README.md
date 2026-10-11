@@ -1,15 +1,19 @@
-# agentpulse (PyPI packaging)
+# agentpulse-bridge (PyPI packaging)
 
-`pip install agentpulse` puts the same Go binary Homebrew and
+`pip install agentpulse-bridge` puts the same Go binary Homebrew and
 `install.sh` install onto `PATH` — no Python code runs in front of it.
 
 ## Layout
 
-- `pyproject.toml` — `PYPI_NAME` (`"agentpulse"`) is defined exactly once,
-  as `[project] name`. `VERSION` (written by the build script, never
-  committed) supplies `dynamic = ["version"]`. `shared-scripts` installs
-  the binary via the wheel's `.data/scripts/` mechanism, not
-  `[project.scripts]` (a Python wrapper).
+- `pyproject.toml` — `PYPI_NAME` (`"agentpulse-bridge"`) is defined
+  exactly once, as `[project] name`; the command it installs is still
+  `agentpulse`. The workflows only pick up wheels named
+  `agentpulse_bridge-*.whl` (the normalized form of that name), so a
+  wheel built under any other name fails the build instead of being
+  uploaded. `VERSION` (written by the build script, never committed)
+  supplies `dynamic = ["version"]`. `shared-scripts` installs the binary
+  via the wheel's `.data/scripts/` mechanism, not `[project.scripts]` (a
+  Python wrapper).
 - `hatch_build.py` — build hook forcing one wheel tag from
   `AGENTPULSE_WHEEL_TAG`; never infers a tag from the host.
 - `build_wheels.py` — discovers the four binaries from
@@ -38,7 +42,7 @@ Run from the repository root, after `goreleaser build --snapshot --clean`:
 ```
 python3 -m venv /tmp/ap-tools && /tmp/ap-tools/bin/pip install -q build hatchling twine
 /tmp/ap-tools/bin/python packaging/pypi/build_wheels.py --dist dist --out dist/wheels --version 0.0.0
-/tmp/ap-tools/bin/twine check dist/wheels/*.whl
+/tmp/ap-tools/bin/twine check dist/wheels/agentpulse_bridge-*.whl
 /tmp/ap-tools/bin/python -m unittest discover -s packaging/pypi
 python3 -m venv /tmp/ap-wheel && /tmp/ap-wheel/bin/pip install --no-index dist/wheels/<wheel for this machine>
 /tmp/ap-wheel/bin/agentpulse version
