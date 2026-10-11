@@ -39,8 +39,13 @@ rest of the suite still runs.
 ## The event schema is closed
 
 The set of fields the bridge sends (`event.v1`) is fixed and additive-only,
-and no field may carry a file path, command text, tool output, or prompt
-text. A pull request that adds a field to the event schema will be declined
+and no field may carry a file path, command text, tool output, or error
+text. Exactly four kinds of human-readable text may leave a user's machine,
+each with a length cap: the computer's name (sent once, at pairing),
+project folder names, subagent type names, and, only when the user has
+turned task labels on, the first line of the prompt cut to 80 characters
+(see "What a person could read" in the README). A change that adds a
+fifth, lengthens one, or adds a field to the event schema will be declined
 without an approved design record behind it. This is the project's central
 promise to its users, so please raise the idea in an issue first.
 

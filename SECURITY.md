@@ -30,6 +30,16 @@ concerns; it will be routed.
 ## Good to know
 
 The bridge sends a closed set of structured events and never transmits file
-paths, command text, tool output, or prompt text. A way to get any of those
-off a user's machine through this program is a vulnerability, and we would
-very much like to hear about it.
+paths, command text, tool output, or error text. The only human-readable
+text that leaves the machine is:
+
+- the computer's name, sent once when the bridge is paired;
+- project folder names (the folder's name, never its path);
+- subagent type names, such as `reviewer`;
+- only if the user turns task labels on in the AgentPulse app, the first
+  line of a prompt, cut to 80 characters. With task labels off, no prompt
+  text is ever sent.
+
+A way to get anything else off a user's machine through this program, or
+to get more than that through one of those four, is a vulnerability, and
+we would very much like to hear about it.
