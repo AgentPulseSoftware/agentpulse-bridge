@@ -28,8 +28,11 @@ PyPI (a wheel that carries the prebuilt binary; handy if `pip` is the
 package manager you already have):
 
 ```
-pip install agentpulse
+pip install agentpulse-bridge
 ```
+
+The package is named `agentpulse-bridge` on PyPI; the command it installs
+is still `agentpulse`.
 
 Install script — download it, check its SHA-256 against the value in the
 release notes, then run it. It is never a `curl | sh` one-liner, and it
