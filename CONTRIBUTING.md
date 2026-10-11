@@ -20,6 +20,12 @@ and stamps in a version string. Both pass `-trimpath`, so neither carries
 the directory it was built in. What stays true either
 way, and is the actual guarantee: no dev tag, and no `record` command.
 
+Tests that exec a built binary build it with `-tags testcred`, which
+compiles in one test-only switch, `AGENTPULSE_TEST_CRED_BACKEND=file`, so
+that binary stores its credential in a temporary file instead of the real
+Keychain or Secret Service. A release build (no tags) does not contain the
+switch at all; `TestReleaseBinaryHasNoTestCredBackendSwitch` checks that.
+
 Schema-validation tests in `internal/classify` are skipped unless
 `AGENTPULSE_EVENT_SCHEMA` points at a local copy of the `event.v1` JSON
 Schema (`AGENTPULSE_EVENT_SCHEMA=/path/to/event.v1.json go test

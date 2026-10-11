@@ -246,8 +246,10 @@ func (s *realHomeStore) Delete() error {
 // skip is a non-darwin machine, and every other way of not reaching the
 // macOS Keychain is a failure with the reason named. In particular the
 // file fallback here means the AGENTPULSE_TEST_CRED_BACKEND override
-// leaked, or cred.Default() was already probed and cached by an earlier
-// test in this binary (BR-06 caches once per process).
+// leaked (it is compiled in only with the dev or testcred tag), or
+// cred.Default() was already probed and cached by an earlier test in this
+// binary (BR-06 caches once per process). It calls cred.Default()
+// directly, not defaultCredStore, which TestMain replaces.
 //
 // This mode overwrites and then deletes the real "agentpulse" Keychain
 // item, so a Mac that is genuinely paired must run `agentpulse pair`
@@ -278,10 +280,10 @@ func e2eCredStore(t *testing.T, realHome string) cred.Store {
 		cleanUpCredential(t, store)
 	})
 
-	// The empty string is not "file", so probeLocked runs the normal
-	// platform probe; t.Setenv's own cleanup puts the harness override
-	// back for every other test in this binary. Never os.Unsetenv, which
-	// would not be restored.
+	// The empty string is not "file", so even a -tags dev run takes the
+	// normal platform probe if the caller's shell happened to set the
+	// override; t.Setenv's own cleanup restores it afterwards. Never
+	// os.Unsetenv, which would not be restored.
 	t.Setenv("AGENTPULSE_TEST_CRED_BACKEND", "")
 	store = &realHomeStore{store: cred.Default(), realHome: realHome}
 	if name := store.Name(); name != cred.NameKeychain {

@@ -80,7 +80,6 @@ func pairingHome(t *testing.T) (home string) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	t.Setenv("AGENTPULSE_TEST_CRED_BACKEND", "file")
 	return home
 }
 

@@ -165,7 +165,7 @@ func runFlush(deps flushDeps) {
 
 	credStore := deps.credStore
 	if credStore == nil {
-		credStore = cred.Default()
+		credStore = defaultCredStore()
 	}
 	secret, secretErr := credStore.Get()
 	if secretErr != nil || secret == "" {

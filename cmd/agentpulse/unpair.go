@@ -70,7 +70,7 @@ func runUnpair(ctx context.Context, d unpairDeps) error {
 	}
 	store := d.credStore
 	if store == nil {
-		store = cred.Default()
+		store = defaultCredStore()
 	}
 
 	// Read the identity before anything deletes it; the revoke below needs
