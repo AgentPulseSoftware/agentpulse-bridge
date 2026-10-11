@@ -46,7 +46,7 @@ func matchesAnyPattern(s string, patterns []*regexp.Regexp) bool {
 // and keeps only tokens that name the runner itself (from runnerTokens) or
 // look like a flag (start with "-"), dropping file paths, test-name
 // filters, and any other positional argument. A kept flag's value — the
-// part after a "=", as in "--apiKey=sk_live_x" — is dropped too, keeping
+// part after a "=", as in "--apiKey=FAKE-KEY" — is dropped too, keeping
 // only the flag's own name; SPEC 7.5 never needs a flag's value, and one
 // could easily be a secret (an API key, a customer name baked into
 // -ldflags, a real path). A flag can also carry a path glued directly onto
@@ -76,7 +76,7 @@ func keepRunnerTokensAndFlags(seg string) string {
 }
 
 // flagNameOnly returns token up to (but not including) its first "=", so
-// "--apiKey=sk_live_x" becomes "--apiKey" and "-ldflags=-X=main.customer=Acme"
+// "--apiKey=FAKE-KEY" becomes "--apiKey" and "-ldflags=-X=main.customer=Acme"
 // becomes "-ldflags" (only the first "=" matters: everything after it,
 // including any further "=" signs, is the value).
 func flagNameOnly(token string) string {

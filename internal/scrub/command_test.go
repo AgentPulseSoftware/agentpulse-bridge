@@ -116,7 +116,7 @@ func TestScrubCommand(t *testing.T) {
 		// --- a kept flag's value (after "=") must never survive ---
 		{
 			name: "npm test with an API key flag value",
-			cmd:  "npm run test -- --testPathPattern=billing --apiKey=sk_live_51H8xSECRET",
+			cmd:  "npm run test -- --testPathPattern=billing --apiKey=FAKE-SECRET-NOT-A-REAL-KEY",
 			want: "npm run test -- --testPathPattern --apiKey",
 		},
 		{
